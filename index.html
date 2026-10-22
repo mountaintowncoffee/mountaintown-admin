@@ -9,12 +9,14 @@
 <style>
   :root {
     --brand: #BE5A34;
+    --brand-soft: #f6e6df;
     --bg: #f6f3f0;
     --card: #ffffff;
     --text: #2b2420;
     --muted: #8a7f78;
     --line: #e6dfd9;
     --danger: #b3261e;
+    --ok: #2e7d4f;
   }
   * { box-sizing: border-box; }
   body {
@@ -31,10 +33,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
   }
-  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; white-space: nowrap; }
   header .who { font-size: 13px; opacity: .9; }
-  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  nav { background: #fff; border-bottom: 1px solid var(--line); padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+  nav button {
+    background: none; color: var(--muted); border: 0; border-bottom: 3px solid transparent;
+    border-radius: 0; padding: 12px 14px; font-size: 15px;
+  }
+  nav button.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
   .card {
     background: var(--card);
     border: 1px solid var(--line);
@@ -45,6 +54,7 @@
   .center { text-align: center; }
   .muted { color: var(--muted); font-size: 13px; }
   .error { color: var(--danger); margin-top: 12px; }
+  .success { color: var(--ok); margin-top: 12px; }
   button {
     background: var(--brand);
     color: #fff;
@@ -54,15 +64,32 @@
     font-size: 14px;
     cursor: pointer;
   }
+  button:disabled { opacity: .5; cursor: default; }
   button.ghost { background: transparent; border: 1px solid rgba(255,255,255,.7); }
+  button.secondary { background: #fff; color: var(--text); border: 1px solid var(--line); }
+  button.small { padding: 5px 10px; font-size: 13px; }
   #gbtn { display: inline-block; margin-top: 16px; }
+  .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
   th { color: var(--muted); font-weight: 500; }
-  td.detail { color: var(--muted); word-break: break-all; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.detail { color: var(--muted); white-space: normal; word-break: break-all; }
+  td.empty { color: var(--danger); }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); }
   .hidden { display: none !important; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, textarea {
+    width: 100%; padding: 8px 10px; font-size: 15px; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; color: var(--text); font-family: inherit;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  h3 { margin-top: 0; }
   @media (max-width: 600px) {
-    th:nth-child(3), td:nth-child(3) { display: none; }
+    #auditTable th:nth-child(3), #auditTable td:nth-child(3) { display: none; }
+    header .who { display: none; }
   }
 </style>
 </head>
@@ -76,6 +103,11 @@
   </div>
 </header>
 
+<nav id="nav" class="hidden">
+  <button data-tab="home" class="active">首頁</button>
+  <button data-tab="salary">員工薪資設定</button>
+</nav>
+
 <main>
   <!-- 登入畫面 -->
   <section id="loginView" class="card center">
@@ -85,21 +117,92 @@
     <div id="loginError" class="error hidden"></div>
   </section>
 
-  <!-- 登入後畫面 -->
-  <section id="appView" class="hidden">
+  <!-- 首頁 -->
+  <section id="homeView" class="hidden">
     <div class="card">
       <h2 id="welcome">歡迎</h2>
       <p class="muted" id="expiry"></p>
-      <p class="muted">薪資設定、薪資單審核等功能會在之後的步驟加入。</p>
     </div>
-
     <div class="card">
       <h3>最近的登入與操作紀錄</h3>
       <div id="auditError" class="error hidden"></div>
-      <table>
-        <thead><tr><th>時間</th><th>動作</th><th>內容</th></tr></thead>
-        <tbody id="auditBody"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody>
-      </table>
+      <div class="table-wrap">
+        <table id="auditTable">
+          <thead><tr><th>時間</th><th>動作</th><th>內容</th></tr></thead>
+          <tbody id="auditBody"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 員工薪資設定 -->
+  <section id="salaryView" class="hidden">
+    <div class="card">
+      <h3>目前生效的設定</h3>
+      <p class="muted">「目前」指生效月份在本月或更早的最新一筆。每次儲存都會新增一筆紀錄，舊紀錄不會被覆蓋。</p>
+      <div id="salaryError" class="error hidden"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>員工</th><th>類別</th><th>生效月份</th>
+              <th class="num">底薪／時薪</th><th class="num">勞保投保</th><th class="num">健保投保</th>
+              <th class="num">眷屬</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="salaryBody"><tr><td colspan="8" class="muted">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 編輯表單 -->
+    <div class="card hidden" id="editCard">
+      <h3 id="editTitle">新增設定</h3>
+      <p class="muted" id="editHint"></p>
+      <div class="form-grid">
+        <div>
+          <label for="fMonth">生效月份</label>
+          <input type="month" id="fMonth">
+        </div>
+        <div>
+          <label for="fPay" id="fPayLabel">底薪</label>
+          <input type="text" inputmode="numeric" id="fPay" placeholder="例：32000">
+        </div>
+        <div>
+          <label for="fLabor">勞保投保金額</label>
+          <input type="text" inputmode="numeric" id="fLabor" placeholder="例：31800">
+        </div>
+        <div>
+          <label for="fHealth">健保投保金額</label>
+          <input type="text" inputmode="numeric" id="fHealth" placeholder="例：31800">
+        </div>
+        <div>
+          <label for="fDeps">健保眷屬人數</label>
+          <input type="text" inputmode="numeric" id="fDeps" value="0">
+        </div>
+        <div>
+          <label for="fNote">備註（選填）</label>
+          <input type="text" id="fNote" maxlength="200" placeholder="例：調薪">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="saveBtn">儲存</button>
+        <button class="secondary" id="cancelBtn">取消</button>
+      </div>
+      <div id="editMsg" class="hidden"></div>
+
+      <h3 style="margin-top:24px">這位員工的歷史紀錄</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>生效月份</th><th class="num">底薪／時薪</th><th class="num">勞保投保</th>
+              <th class="num">健保投保</th><th class="num">眷屬</th><th>備註</th><th>建立時間</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>
@@ -110,12 +213,16 @@
   var GOOGLE_CLIENT_ID = '479412038832-hfvqc7fcoi1l1lgmm2ibb8haiqji9gie.apps.googleusercontent.com';
 
   var STORE_KEY = 'mt_admin_session';
+  var session = null;
+  var salaryData = { employees: [], history: [] };
+  var editing = null;
 
   var ACTION_LABELS = {
     login_ok: '登入成功',
     login_denied: '登入被拒（非負責人）',
     login_invalid: '無效的登入嘗試',
-    selftest: '系統自我檢查'
+    selftest: '系統自我檢查',
+    salary_save: '儲存薪資設定'
   };
 
   // ---------- 呼叫 Payroll API ----------
@@ -128,6 +235,17 @@
       body: JSON.stringify(body),
       redirect: 'follow'
     }).then(function (r) { return r.json(); });
+  }
+
+  function authed(action, data) {
+    return api(action, Object.assign({ sessionToken: session && session.sessionToken }, data || {}))
+      .then(function (res) {
+        if (!res.ok && res.error === 'unauthorized') {
+          logout('登入已過期，請重新登入。');
+          throw new Error('unauthorized');
+        }
+        return res;
+      });
   }
 
   // ---------- 通行證存放（只存在這個分頁，關掉分頁就清除） ----------
@@ -146,100 +264,286 @@
   }
 
   // ---------- 畫面切換 ----------
+  function $(id) { return document.getElementById(id); }
+  function show(el) { el.classList.remove('hidden'); }
+  function hide(el) { el.classList.add('hidden'); }
+
   function showLogin(msg) {
-    document.getElementById('appView').classList.add('hidden');
-    document.getElementById('topRight').classList.add('hidden');
-    document.getElementById('loginView').classList.remove('hidden');
-    var err = document.getElementById('loginError');
-    if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
-    else { err.classList.add('hidden'); }
+    ['homeView', 'salaryView', 'topRight', 'nav'].forEach(function (id) { hide($(id)); });
+    show($('loginView'));
+    var err = $('loginError');
+    if (msg) { err.textContent = msg; show(err); } else { hide(err); }
   }
 
   function showApp(s) {
-    document.getElementById('loginView').classList.add('hidden');
-    document.getElementById('appView').classList.remove('hidden');
-    document.getElementById('topRight').classList.remove('hidden');
-    document.getElementById('who').textContent = s.email + '　';
-    document.getElementById('welcome').textContent = '歡迎，' + (s.ownerName || '負責人');
-    document.getElementById('expiry').textContent =
-      '登入有效至 ' + formatTime(s.expiresAt) + '（之後需要重新登入）';
-    loadAudit(s);
+    session = s;
+    hide($('loginView'));
+    show($('topRight'));
+    show($('nav'));
+    $('who').textContent = s.email + '　';
+    $('welcome').textContent = '歡迎，' + (s.ownerName || '負責人');
+    $('expiry').textContent = '登入有效至 ' + formatTime(s.expiresAt) + '（之後需要重新登入）';
+    switchTab('home');
   }
+
+  function switchTab(tab) {
+    Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+    });
+    hide($('homeView')); hide($('salaryView'));
+    if (tab === 'home') { show($('homeView')); loadAudit(); }
+    if (tab === 'salary') { show($('salaryView')); hide($('editCard')); loadSalary(); }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
+    b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
+  });
 
   // ---------- Google 登入 ----------
   function onGoogleCredential(resp) {
-    document.getElementById('loginError').classList.add('hidden');
+    hide($('loginError'));
     api('login', { idToken: resp.credential })
       .then(function (res) {
-        if (!res.ok) {
-          showLogin('這個 Google 帳號沒有權限進入後台。');
-          return;
-        }
-        var s = {
-          sessionToken: res.sessionToken,
-          expiresAt: res.expiresAt,
-          email: res.email,
-          ownerName: res.ownerName
-        };
+        if (!res.ok) { showLogin('這個 Google 帳號沒有權限進入後台。'); return; }
+        var s = { sessionToken: res.sessionToken, expiresAt: res.expiresAt, email: res.email, ownerName: res.ownerName };
         saveSession(s);
         showApp(s);
       })
-      .catch(function () {
-        showLogin('連線失敗，請稍後再試。');
-      });
+      .catch(function () { showLogin('連線失敗，請稍後再試。'); });
   }
 
   function initGoogle() {
-    if (!window.google || !google.accounts || !google.accounts.id) {
-      setTimeout(initGoogle, 200);
-      return;
-    }
-    google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: onGoogleCredential,
-      auto_select: false
-    });
-    google.accounts.id.renderButton(document.getElementById('gbtn'), {
-      theme: 'outline',
-      size: 'large',
-      text: 'signin_with',
-      locale: 'zh-TW'
-    });
+    if (!window.google || !google.accounts || !google.accounts.id) { setTimeout(initGoogle, 200); return; }
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onGoogleCredential, auto_select: false });
+    google.accounts.id.renderButton($('gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'zh-TW' });
   }
 
   // ---------- 稽核紀錄 ----------
-  function loadAudit(s) {
-    var tbody = document.getElementById('auditBody');
-    var err = document.getElementById('auditError');
-    err.classList.add('hidden');
-    api('audit_recent', { sessionToken: s.sessionToken, limit: 30 })
+  function loadAudit() {
+    var tbody = $('auditBody');
+    hide($('auditError'));
+    authed('audit_recent', { limit: 30 })
       .then(function (res) {
-        if (!res.ok) {
-          if (res.error === 'unauthorized') { logout('登入已過期，請重新登入。'); return; }
-          throw new Error(res.error);
-        }
+        if (!res.ok) throw new Error(res.error);
         tbody.innerHTML = '';
-        if (!res.rows.length) {
-          tbody.innerHTML = '<tr><td colspan="3" class="muted">目前沒有紀錄</td></tr>';
-          return;
-        }
+        if (!res.rows.length) { tbody.innerHTML = '<tr><td colspan="3" class="muted">目前沒有紀錄</td></tr>'; return; }
         res.rows.forEach(function (r) {
           var tr = document.createElement('tr');
           addCell(tr, formatTime(r.occurred_at));
           addCell(tr, ACTION_LABELS[r.action] || r.action);
           var detail = [];
-          if (r.after_data && r.after_data.email) detail.push(r.after_data.email);
+          var a = r.after_data || {};
+          if (a.email) detail.push(a.email);
+          if (a.employee_name) detail.push(a.employee_name + '（生效 ' + String(a.effective_month || '').slice(0, 7) + '）');
           if (r.note) detail.push(r.note);
           addCell(tr, detail.join('　'), 'detail');
           tbody.appendChild(tr);
         });
       })
-      .catch(function () {
-        err.textContent = '紀錄載入失敗。';
-        err.classList.remove('hidden');
+      .catch(function (e) {
+        if (e.message === 'unauthorized') return;
+        $('auditError').textContent = '紀錄載入失敗。';
+        show($('auditError'));
       });
   }
 
+  // ---------- 員工薪資設定 ----------
+  function loadSalary() {
+    var tbody = $('salaryBody');
+    hide($('salaryError'));
+    tbody.innerHTML = '<tr><td colspan="8" class="muted">載入中…</td></tr>';
+    return authed('salary_list')
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error);
+        salaryData = { employees: res.employees || [], history: res.history || [] };
+        renderSalaryTable();
+      })
+      .catch(function (e) {
+        if (e.message === 'unauthorized') return;
+        $('salaryError').textContent = '資料載入失敗。';
+        show($('salaryError'));
+      });
+  }
+
+  function thisMonth() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function historyOf(empId) {
+    return salaryData.history.filter(function (h) { return h.employee_id === empId; });
+  }
+
+  // 目前生效：生效月份 ≤ 本月的最新一筆；若只有未來的，顯示最近的那筆並標「尚未生效」
+  function currentOf(empId) {
+    var cutoff = thisMonth() + '-01';
+    var list = historyOf(empId);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].effective_month <= cutoff) return { row: list[i], future: false };
+    }
+    return list.length ? { row: list[list.length - 1], future: true } : null;
+  }
+
+  function payOf(emp, row) {
+    var v = emp.employment_type === '正職' ? row.base_salary : row.hourly_rate;
+    return v === null || v === undefined ? '—' : money(v);
+  }
+
+  function renderSalaryTable() {
+    var tbody = $('salaryBody');
+    tbody.innerHTML = '';
+    if (!salaryData.employees.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">沒有員工資料</td></tr>';
+      return;
+    }
+    salaryData.employees.forEach(function (emp) {
+      var tr = document.createElement('tr');
+      addCell(tr, emp.name);
+      var typeTd = document.createElement('td');
+      var tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = emp.employment_type;
+      typeTd.appendChild(tag);
+      tr.appendChild(typeTd);
+
+      var cur = currentOf(emp.employee_id);
+      if (!cur) {
+        addCell(tr, '尚未設定', 'empty');
+        for (var i = 0; i < 4; i++) addCell(tr, '', 'num');
+      } else {
+        var r = cur.row;
+        addCell(tr, String(r.effective_month).slice(0, 7) + (cur.future ? '（尚未生效）' : ''));
+        addCell(tr, payOf(emp, r), 'num');
+        addCell(tr, money(r.labor_insured_amount), 'num');
+        addCell(tr, money(r.health_insured_amount), 'num');
+        addCell(tr, r.health_dependents === null ? '—' : String(r.health_dependents), 'num');
+      }
+
+      var btnTd = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.className = 'small';
+      btn.textContent = cur ? '新增調整' : '設定';
+      btn.addEventListener('click', function () { openEdit(emp); });
+      btnTd.appendChild(btn);
+      tr.appendChild(btnTd);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function openEdit(emp) {
+    editing = emp;
+    var isFull = emp.employment_type === '正職';
+    $('editTitle').textContent = emp.name + '：新增薪資設定';
+    $('fPayLabel').textContent = isFull ? '底薪（月薪）' : '時薪';
+    $('fPay').placeholder = isFull ? '例：32000' : '例：200';
+
+    // 預設值：沿用最新一筆，生效月份預設本月（到職日在未來則用到職月份）
+    var list = historyOf(emp.employee_id);
+    var latest = list.length ? list[0] : null;
+    var month = thisMonth();
+    if (emp.hire_date && emp.hire_date.slice(0, 7) > month) month = emp.hire_date.slice(0, 7);
+    $('fMonth').value = month;
+    $('fPay').value = latest ? rawNum(isFull ? latest.base_salary : latest.hourly_rate) : '';
+    $('fLabor').value = latest ? rawNum(latest.labor_insured_amount) : '';
+    $('fHealth').value = latest ? rawNum(latest.health_insured_amount) : '';
+    $('fDeps').value = latest && latest.health_dependents !== null ? latest.health_dependents : 0;
+    $('fNote').value = '';
+    $('editHint').textContent = emp.hire_date ? '到職日：' + emp.hire_date : '';
+    hide($('editMsg'));
+    $('saveBtn').disabled = false;
+
+    var hb = $('historyBody');
+    hb.innerHTML = '';
+    if (!list.length) {
+      hb.innerHTML = '<tr><td colspan="7" class="muted">還沒有任何紀錄</td></tr>';
+    } else {
+      list.forEach(function (r) {
+        var tr = document.createElement('tr');
+        addCell(tr, String(r.effective_month).slice(0, 7));
+        addCell(tr, payOf(emp, r), 'num');
+        addCell(tr, money(r.labor_insured_amount), 'num');
+        addCell(tr, money(r.health_insured_amount), 'num');
+        addCell(tr, r.health_dependents === null ? '—' : String(r.health_dependents), 'num');
+        addCell(tr, r.note || '', 'detail');
+        addCell(tr, formatTime(r.created_at));
+        hb.appendChild(tr);
+      });
+    }
+
+    show($('editCard'));
+    $('editCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  $('cancelBtn').addEventListener('click', function () { hide($('editCard')); editing = null; });
+
+  $('saveBtn').addEventListener('click', function () {
+    if (!editing) return;
+    var isFull = editing.employment_type === '正職';
+    var data = {
+      employee_id: editing.employee_id,
+      effective_month: $('fMonth').value,
+      labor_insured_amount: $('fLabor').value.trim(),
+      health_insured_amount: $('fHealth').value.trim(),
+      health_dependents: $('fDeps').value.trim(),
+      note: $('fNote').value.trim()
+    };
+    if (isFull) data.base_salary = $('fPay').value.trim(); else data.hourly_rate = $('fPay').value.trim();
+
+    var summary = editing.name + '\n生效月份：' + data.effective_month +
+      '\n' + (isFull ? '底薪：' : '時薪：') + (isFull ? data.base_salary : data.hourly_rate) +
+      '\n勞保投保：' + data.labor_insured_amount + '\n健保投保：' + data.health_insured_amount +
+      '\n眷屬人數：' + data.health_dependents;
+
+    var msg = $('editMsg');
+    msg.className = 'muted';
+    msg.textContent = '請確認：\n' + summary;
+    msg.style.whiteSpace = 'pre-line';
+    show(msg);
+
+    if ($('saveBtn').getAttribute('data-confirm') !== '1') {
+      $('saveBtn').setAttribute('data-confirm', '1');
+      $('saveBtn').textContent = '確認儲存';
+      return;
+    }
+
+    $('saveBtn').disabled = true;
+    authed('salary_save', { data: data })
+      .then(function (res) {
+        resetSaveBtn();
+        if (!res.ok) {
+          msg.className = 'error';
+          msg.textContent = res.error || '儲存失敗';
+          $('saveBtn').disabled = false;
+          return;
+        }
+        var emp = editing;
+        return loadSalary().then(function () {
+          openEdit(emp);
+          var m = $('editMsg');
+          m.className = 'success';
+          m.textContent = '已儲存。';
+          show(m);
+        });
+      })
+      .catch(function (e) {
+        resetSaveBtn();
+        if (e.message === 'unauthorized') return;
+        msg.className = 'error';
+        msg.textContent = '連線失敗，這次沒有確定是否儲存，請先重新整理頁面確認歷史紀錄。';
+        $('saveBtn').disabled = false;
+      });
+  });
+
+  // 只要改了任何欄位，就要重新確認
+  ['fMonth', 'fPay', 'fLabor', 'fHealth', 'fDeps', 'fNote'].forEach(function (id) {
+    $(id).addEventListener('input', function () { resetSaveBtn(); hide($('editMsg')); });
+  });
+
+  function resetSaveBtn() {
+    $('saveBtn').removeAttribute('data-confirm');
+    $('saveBtn').textContent = '儲存';
+  }
+
+  // ---------- 小工具 ----------
   // 一律用 textContent 放資料，避免資料內容被當成網頁程式執行
   function addCell(tr, text, cls) {
     var td = document.createElement('td');
@@ -248,22 +552,26 @@
     tr.appendChild(td);
   }
 
+  function money(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    return Number(v).toLocaleString('zh-TW');
+  }
+  function rawNum(v) { return v === null || v === undefined ? '' : String(Number(v)); }
+
   function formatTime(v) {
     var d = new Date(v);
     var p = function (n) { return String(n).padStart(2, '0'); };
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
-      ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   // ---------- 登出 ----------
   function logout(msg) {
     clearSession();
-    if (window.google && google.accounts && google.accounts.id) {
-      google.accounts.id.disableAutoSelect();
-    }
+    session = null;
+    if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
     showLogin(msg);
   }
-  document.getElementById('logoutBtn').addEventListener('click', function () { logout(); });
+  $('logoutBtn').addEventListener('click', function () { logout(); });
 
   // ---------- 啟動 ----------
   var existing = loadSession();
