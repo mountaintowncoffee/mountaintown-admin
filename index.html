@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>貓燙後台</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root {
+    --brand: #BE5A34;
+    --bg: #f6f3f0;
+    --card: #ffffff;
+    --text: #2b2420;
+    --muted: #8a7f78;
+    --line: #e6dfd9;
+    --danger: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+  }
+  header {
+    background: var(--brand);
+    color: #fff;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .who { font-size: 13px; opacity: .9; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .center { text-align: center; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .error { color: var(--danger); margin-top: 12px; }
+  button {
+    background: var(--brand);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.ghost { background: transparent; border: 1px solid rgba(255,255,255,.7); }
+  #gbtn { display: inline-block; margin-top: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.detail { color: var(--muted); word-break: break-all; }
+  .hidden { display: none !important; }
+  @media (max-width: 600px) {
+    th:nth-child(3), td:nth-child(3) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>貓燙後台</h1>
+  <div id="topRight" class="hidden">
+    <span class="who" id="who"></span>
+    <button class="ghost" id="logoutBtn">登出</button>
+  </div>
+</header>
+
+<main>
+  <!-- 登入畫面 -->
+  <section id="loginView" class="card center">
+    <h2>負責人登入</h2>
+    <p class="muted">只有授權的 Google 帳號可以進入</p>
+    <div id="gbtn"></div>
+    <div id="loginError" class="error hidden"></div>
+  </section>
+
+  <!-- 登入後畫面 -->
+  <section id="appView" class="hidden">
+    <div class="card">
+      <h2 id="welcome">歡迎</h2>
+      <p class="muted" id="expiry"></p>
+      <p class="muted">薪資設定、薪資單審核等功能會在之後的步驟加入。</p>
+    </div>
+
+    <div class="card">
+      <h3>最近的登入與操作紀錄</h3>
+      <div id="auditError" class="error hidden"></div>
+      <table>
+        <thead><tr><th>時間</th><th>動作</th><th>內容</th></tr></thead>
+        <tbody id="auditBody"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  // 這兩個值不是機密，本來就會出現在網頁裡
+  var API_URL = 'https://script.google.com/macros/s/AKfycbzORjzw_iG3Ah7zVv5rx2B67kzO48lB7glFkOdhwbcUzKmaJ6dugFJRHHVrhCMBi3pg/exec';
+  var GOOGLE_CLIENT_ID = '479412038832-hfvqc7fcoi1l1lgmm2ibb8haiqji9gie.apps.googleusercontent.com';
+
+  var STORE_KEY = 'mt_admin_session';
+
+  var ACTION_LABELS = {
+    login_ok: '登入成功',
+    login_denied: '登入被拒（非負責人）',
+    login_invalid: '無效的登入嘗試',
+    selftest: '系統自我檢查'
+  };
+
+  // ---------- 呼叫 Payroll API ----------
+  // 用 text/plain 送出，避免瀏覽器先送 OPTIONS 預檢（Apps Script 不支援）
+  function api(action, data) {
+    var body = Object.assign({ action: action }, data || {});
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      redirect: 'follow'
+    }).then(function (r) { return r.json(); });
+  }
+
+  // ---------- 通行證存放（只存在這個分頁，關掉分頁就清除） ----------
+  function saveSession(s) {
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+  function loadSession() {
+    try {
+      var s = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+      if (s && s.sessionToken && s.expiresAt > Date.now()) return s;
+    } catch (e) {}
+    return null;
+  }
+  function clearSession() {
+    try { sessionStorage.removeItem(STORE_KEY); } catch (e) {}
+  }
+
+  // ---------- 畫面切換 ----------
+  function showLogin(msg) {
+    document.getElementById('appView').classList.add('hidden');
+    document.getElementById('topRight').classList.add('hidden');
+    document.getElementById('loginView').classList.remove('hidden');
+    var err = document.getElementById('loginError');
+    if (msg) { err.textContent = msg; err.classList.remove('hidden'); }
+    else { err.classList.add('hidden'); }
+  }
+
+  function showApp(s) {
+    document.getElementById('loginView').classList.add('hidden');
+    document.getElementById('appView').classList.remove('hidden');
+    document.getElementById('topRight').classList.remove('hidden');
+    document.getElementById('who').textContent = s.email + '　';
+    document.getElementById('welcome').textContent = '歡迎，' + (s.ownerName || '負責人');
+    document.getElementById('expiry').textContent =
+      '登入有效至 ' + formatTime(s.expiresAt) + '（之後需要重新登入）';
+    loadAudit(s);
+  }
+
+  // ---------- Google 登入 ----------
+  function onGoogleCredential(resp) {
+    document.getElementById('loginError').classList.add('hidden');
+    api('login', { idToken: resp.credential })
+      .then(function (res) {
+        if (!res.ok) {
+          showLogin('這個 Google 帳號沒有權限進入後台。');
+          return;
+        }
+        var s = {
+          sessionToken: res.sessionToken,
+          expiresAt: res.expiresAt,
+          email: res.email,
+          ownerName: res.ownerName
+        };
+        saveSession(s);
+        showApp(s);
+      })
+      .catch(function () {
+        showLogin('連線失敗，請稍後再試。');
+      });
+  }
+
+  function initGoogle() {
+    if (!window.google || !google.accounts || !google.accounts.id) {
+      setTimeout(initGoogle, 200);
+      return;
+    }
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: onGoogleCredential,
+      auto_select: false
+    });
+    google.accounts.id.renderButton(document.getElementById('gbtn'), {
+      theme: 'outline',
+      size: 'large',
+      text: 'signin_with',
+      locale: 'zh-TW'
+    });
+  }
+
+  // ---------- 稽核紀錄 ----------
+  function loadAudit(s) {
+    var tbody = document.getElementById('auditBody');
+    var err = document.getElementById('auditError');
+    err.classList.add('hidden');
+    api('audit_recent', { sessionToken: s.sessionToken, limit: 30 })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.error === 'unauthorized') { logout('登入已過期，請重新登入。'); return; }
+          throw new Error(res.error);
+        }
+        tbody.innerHTML = '';
+        if (!res.rows.length) {
+          tbody.innerHTML = '<tr><td colspan="3" class="muted">目前沒有紀錄</td></tr>';
+          return;
+        }
+        res.rows.forEach(function (r) {
+          var tr = document.createElement('tr');
+          addCell(tr, formatTime(r.occurred_at));
+          addCell(tr, ACTION_LABELS[r.action] || r.action);
+          var detail = [];
+          if (r.after_data && r.after_data.email) detail.push(r.after_data.email);
+          if (r.note) detail.push(r.note);
+          addCell(tr, detail.join('　'), 'detail');
+          tbody.appendChild(tr);
+        });
+      })
+      .catch(function () {
+        err.textContent = '紀錄載入失敗。';
+        err.classList.remove('hidden');
+      });
+  }
+
+  // 一律用 textContent 放資料，避免資料內容被當成網頁程式執行
+  function addCell(tr, text, cls) {
+    var td = document.createElement('td');
+    td.textContent = text;
+    if (cls) td.className = cls;
+    tr.appendChild(td);
+  }
+
+  function formatTime(v) {
+    var d = new Date(v);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  // ---------- 登出 ----------
+  function logout(msg) {
+    clearSession();
+    if (window.google && google.accounts && google.accounts.id) {
+      google.accounts.id.disableAutoSelect();
+    }
+    showLogin(msg);
+  }
+  document.getElementById('logoutBtn').addEventListener('click', function () { logout(); });
+
+  // ---------- 啟動 ----------
+  var existing = loadSession();
+  if (existing) showApp(existing); else showLogin();
+  initGoogle();
+</script>
+</body>
+</html>
