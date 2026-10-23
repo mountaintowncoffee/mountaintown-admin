@@ -236,6 +236,11 @@
       <p class="muted">填了離職日，離職當月的底薪會按天數計算（底薪 ÷ 30 × 在職天數），勞保按日計，月中離職當月不收健保。</p>
       <div id="termMsg" class="hidden"></div>
 
+      <h3 style="margin-top:24px">帳號狀態</h3>
+      <div class="toolbar"><span id="accState"></span><button class="small" id="accBtn"></button></div>
+      <p class="muted">停權後就不能登入 LIFF（打卡、請假、薪資單都不能用），最多約 5 分鐘生效。設定了離職日的員工，系統會在離職日隔天自動停權。</p>
+      <div id="accMsg" class="hidden"></div>
+
       <h3 style="margin-top:24px">留職停薪</h3>
       <div class="table-wrap">
         <table>
@@ -303,6 +308,8 @@
         <span id="prMonth" class="toolbar"></span>
         <button id="prGenerate">產生草稿</button>
         <button class="secondary" id="prApprove">核准本月薪資</button>
+        <button class="secondary" id="prPublish">發布</button>
+        <button class="secondary" id="prClose">結案</button>
         <span id="prPeriodStatus"></span>
       </div>
       <div id="prNotice" class="notice hidden"></div>
@@ -310,8 +317,8 @@
       <div id="prMsg" class="success hidden"></div>
       <div class="table-wrap" style="margin-top:12px">
         <table>
-          <thead><tr><th>員工</th><th>身分</th><th>應發明細</th><th class="num">應發合計</th><th>扣除明細</th><th class="num">扣除合計</th><th class="num">實領</th><th>提醒</th><th></th></tr></thead>
-          <tbody id="prBody"><tr><td colspan="9" class="muted">載入中…</td></tr></tbody>
+          <thead><tr><th>員工</th><th>身分</th><th>應發明細</th><th class="num">應發合計</th><th>扣除明細</th><th class="num">扣除合計</th><th class="num">實領</th><th>狀態</th><th>提醒</th><th></th></tr></thead>
+          <tbody id="prBody"><tr><td colspan="10" class="muted">載入中…</td></tr></tbody>
           <tfoot id="prFoot"></tfoot>
         </table>
       </div>
@@ -320,6 +327,7 @@
     <div class="card hidden" id="slipCard">
       <h3 id="slipTitle"></h3>
       <div class="totals" id="slipTotals"></div>
+      <div id="slipActions"></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>項目</th><th>日期</th><th class="num">時數</th><th>計薪方式</th><th class="num">比例／金額</th><th class="num">時薪</th><th class="num">小計</th><th>說明</th><th></th></tr></thead>
@@ -388,7 +396,18 @@
     payroll_generate: '產生薪資草稿',
     payroll_item_add: '新增薪資手動項目',
     payroll_item_delete: '刪除薪資手動項目',
-    payroll_approve: '核准薪資'
+    payroll_approve: '核准薪資',
+    payroll_publish: '發布薪資單',
+    payroll_close: '薪資結案',
+    payslip_return: '退回薪資單修改',
+    payslip_regenerate: '重新計算單張薪資單',
+    payslip_republish: '重新發布薪資單',
+    payslip_confirm: '員工確認薪資單',
+    payslip_dispute: '員工提出異議',
+    payslip_auto_confirm: '薪資單視同同意',
+    employee_suspend: '停權',
+    employee_reactivate: '恢復登入',
+    employee_auto_suspend: '離職自動停權'
   };
 
   // ---------- 呼叫 Payroll API ----------
@@ -659,6 +678,13 @@
     }
 
     $('fTerm').value = emp.termination_date || '';
+    var active = emp.status === '在職';
+    $('accState').textContent = active ? '✅ 在職（可登入 LIFF）' : '⛔ 已停權（離職）';
+    $('accBtn').textContent = active ? '立即停權' : '恢復登入';
+    $('accBtn').className = active ? 'small' : 'secondary small';
+    $('accBtn').removeAttribute('data-confirm');
+    $('accBtn').disabled = false;
+    hide($('accMsg'));
     hide($('termMsg'));
     renderBreaks(emp);
     renderAllowances(emp);
@@ -710,6 +736,14 @@
       })
       .catch(function (e) { if (e.message !== 'unauthorized') { msg.className = 'error'; msg.textContent = '連線失敗，請重新整理確認'; show(msg); } });
   }
+
+  $('accBtn').addEventListener('click', function () {
+    var b = $('accBtn');
+    var toStatus = editing.status === '在職' ? '離職' : '在職';
+    confirmThen(b, toStatus === '離職' ? '確定立即停權？' : '確定恢復登入？', function () {
+      simpleAction('employee_set_status', { employee_id: editing.employee_id, status: toStatus }, 'accMsg', toStatus === '離職' ? '已停權。' : '已恢復。');
+    });
+  });
 
   $('termSave').addEventListener('click', function () {
     if (!$('fTerm').value) { var m = $('termMsg'); m.className = 'error'; m.textContent = '請選擇離職日'; show(m); return; }
@@ -880,7 +914,9 @@
     var b = document.createElement('span');
     if (!period) { b.className = 'status'; b.textContent = '尚未產生草稿'; }
     else if (period.status === 'draft') { b.className = 'status draft'; b.textContent = '草稿'; }
-    else { b.className = 'status approved'; b.textContent = '已核准'; }
+    else if (period.status === 'approved') { b.className = 'status approved'; b.textContent = '已核准（未發布）'; }
+    else if (period.status === 'published') { b.className = 'status approved'; b.textContent = '已發布，員工確認中'; }
+    else { b.className = 'status'; b.textContent = '已結案'; }
     el.appendChild(b);
   }
 
@@ -985,7 +1021,7 @@
     var tbody = $('prBody');
     ['prError', 'prNotice'].forEach(function (id) { hide($(id)); });
     if (!keepSelection) { hide($('prMsg')); prSelected = null; hide($('slipCard')); }
-    tbody.innerHTML = '<tr><td colspan="9" class="muted">載入中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="muted">載入中…</td></tr>';
     $('prFoot').innerHTML = '';
     return authed('payroll_get', { month: $('prMonth').value })
       .then(function (res) {
@@ -1006,9 +1042,12 @@
     periodBadge($('prPeriodStatus'), prData.period);
     var locked = isLocked();
     $('prGenerate').textContent = prData.payslips.length ? '重新產生草稿' : '產生草稿';
+    var pst = prData.period ? prData.period.status : null;
     $('prGenerate').disabled = locked;
     $('prApprove').disabled = locked || !prData.payslips.length;
     resetBtn($('prApprove'), '核准本月薪資');
+    resetBtn($('prPublish'), '發布'); $('prPublish').disabled = pst !== 'approved';
+    resetBtn($('prClose'), '結案'); $('prClose').disabled = pst !== 'published';
 
     var p = prData.pending;
     if (!locked && (p.leaves || p.makeups)) {
@@ -1019,7 +1058,7 @@
     var tbody = $('prBody');
     tbody.innerHTML = '';
     if (!prData.payslips.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="muted">這個月還沒有草稿，請按「產生草稿」</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="muted">這個月還沒有草稿，請按「產生草稿」</td></tr>';
       return;
     }
     var tg = 0, td = 0, tn = 0;
@@ -1035,6 +1074,7 @@
       addCell(tr, money(s.deduction_amount), 'num');
       var netTd = addCell(tr, money(s.net_amount), 'num');
       netTd.style.fontWeight = '600';
+      addCell(tr, slipStatusText(s));
       addCell(tr, warns ? '⚠️ ' + warns + ' 項' : '');
       var bt = document.createElement('td');
       var ob = document.createElement('button');
@@ -1046,7 +1086,7 @@
     });
     var f = document.createElement('tr');
     addCell(f, '合計'); addCell(f, prData.payslips.length + ' 人');
-    addCell(f, ''); addCell(f, money(tg), 'num'); addCell(f, ''); addCell(f, money(td), 'num'); addCell(f, money(tn), 'num'); addCell(f, ''); addCell(f, '');
+    addCell(f, ''); addCell(f, money(tg), 'num'); addCell(f, ''); addCell(f, money(td), 'num'); addCell(f, money(tn), 'num'); addCell(f, ''); addCell(f, ''); addCell(f, '');
     Array.prototype.forEach.call(f.children, function (c) { c.style.fontWeight = '600'; });
     $('prFoot').appendChild(f);
   }
@@ -1080,7 +1120,8 @@
       span.appendChild(b); t.appendChild(span);
     });
 
-    var locked = isLocked();
+    var locked = !slipEditable(s);
+    renderSlipActions(s);
     var tb = $('slipBody');
     tb.innerHTML = '';
     itemsOf(s.payslip_id).forEach(function (i) {
@@ -1113,6 +1154,121 @@
     if (locked) hide($('manualBox')); else show($('manualBox'));
     hide($('mMsg'));
     show($('slipCard'));
+  }
+
+  // ---------- 發布、結案、異議處理、PDF ----------
+  function slipEditable(s) {
+    if (!prData || !prData.period) return false;
+    return prData.period.status === 'draft' || (prData.period.status === 'published' && s.status === 'draft');
+  }
+
+  var SLIP_STATUS = { draft: '草稿', approved: '已核准', published: '待員工確認', confirmed: '已確認',
+    auto_confirmed: '視同同意', disputed: '⚠️ 有異議' };
+  function slipStatusText(s) {
+    if (prData.period && prData.period.status === 'published' && s.status === 'draft') return '✏️ 退回修改中';
+    return SLIP_STATUS[s.status] || s.status;
+  }
+
+  function renderSlipActions(s) {
+    var box = $('slipActions');
+    box.innerHTML = '';
+    var period = prData.period;
+    if (s.dispute_note) {
+      var d = document.createElement('div');
+      d.className = 'notice';
+      d.style.whiteSpace = 'pre-line';
+      d.textContent = '員工異議：\n' + s.dispute_note;
+      box.appendChild(d);
+    }
+    var bar = document.createElement('div');
+    bar.className = 'actions';
+    function btn(text, cls, fn) {
+      var b = document.createElement('button');
+      b.textContent = text; if (cls) b.className = cls;
+      b.addEventListener('click', function () { fn(b); });
+      bar.appendChild(b);
+    }
+    if (period && period.status === 'published' && s.status === 'disputed') {
+      btn('退回修改', '', function (b) { confirmThen(b, '確定退回這張修改？', function () { slipAction('payslip_return', s, '已退回，可以修改了。'); }); });
+    }
+    if (period && period.status === 'published' && s.status === 'draft') {
+      btn('重新計算此人', 'secondary', function (b) { confirmThen(b, '確定重新計算？（手動項目保留）', function () { slipAction('payslip_regenerate', s, '已重新計算。'); }); });
+      btn('重新發布給員工', '', function (b) { confirmThen(b, '確定重新發布？員工會收到 LINE 通知', function () { slipAction('payslip_republish', s, '已重新發布。'); }); });
+    }
+    btn('下載 PDF', 'secondary', function () { printSlip(s); });
+    box.appendChild(bar);
+  }
+
+  function confirmThen(b, text, fn) {
+    if (b.getAttribute('data-confirm') !== '1') { b.setAttribute('data-confirm', '1'); b.textContent = text; return; }
+    b.disabled = true;
+    fn();
+  }
+
+  function slipAction(action, s, okText) {
+    hide($('prError'));
+    authed(action, { data: { payslip_id: s.payslip_id } })
+      .then(function (res) {
+        if (!res.ok) { showErr('prError', res.error || '操作失敗'); loadPayroll(true); return; }
+        return loadPayroll(true).then(function () { var m = $('prMsg'); m.textContent = okText; show(m); });
+      })
+      .catch(function (e) { if (e.message !== 'unauthorized') showErr('prError', '連線失敗，請重新載入確認'); });
+  }
+
+  function monthAction(action, btn, okText) {
+    btn.disabled = true;
+    hide($('prError')); hide($('prMsg'));
+    authed(action, { month: $('prMonth').value })
+      .then(function (res) {
+        if (!res.ok) { showErr('prError', res.error || '操作失敗'); loadPayroll(true); return; }
+        var t = okText + (res.total !== undefined ? '（LINE 通知送出 ' + res.sent + '／' + res.total + ' 位；沒收到的請確認他有加官方帳號好友）' : '');
+        return loadPayroll(true).then(function () { var m = $('prMsg'); m.textContent = t; show(m); });
+      })
+      .catch(function (e) { if (e.message !== 'unauthorized') showErr('prError', '連線失敗，請重新載入確認'); loadPayroll(true); });
+  }
+
+  $('prPublish').addEventListener('click', function () {
+    var b = $('prPublish');
+    confirmThen(b, '確定發布？每位員工會收到 LINE 通知', function () { monthAction('payroll_publish', b, '已發布。'); });
+  });
+  $('prClose').addEventListener('click', function () {
+    var b = $('prClose');
+    confirmThen(b, '結案後整月鎖定，確定？', function () { monthAction('payroll_close', b, '已結案。'); });
+  });
+
+  // PDF：開新視窗顯示員工格式的薪資單，再用瀏覽器「列印 → 儲存為 PDF」
+  function printSlip(s) {
+    var w = window.open('', '_blank');
+    if (!w) { showErr('prError', '瀏覽器擋住了新視窗，請允許彈出視窗後再試'); return; }
+    w.document.write('<p style="font-family:sans-serif">載入中…</p>');
+    authed('payslip_view', { payslip_id: s.payslip_id })
+      .then(function (res) {
+        if (!res.ok) { w.document.body.textContent = res.error || '載入失敗'; return; }
+        var x = res.slip, v = res.view;
+        var esc2 = function (t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+        var rows = function (list, minus) {
+          return list.map(function (i) {
+            return '<tr><td>' + esc2(i.category) + (i.sub ? '<div class="sub">' + esc2(i.sub) + '</div>' : '') + '</td><td class="n">' +
+              (minus ? '−' : '') + Number(i.amount).toLocaleString('zh-TW') + '</td></tr>';
+          }).join('');
+        };
+        var m = x.month.slice(0, 4) + ' 年 ' + Number(x.month.slice(5, 7)) + ' 月';
+        var html = '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>' + esc2(x.name) + ' ' + m + ' 薪資單</title><style>' +
+          'body{font-family:-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;color:#222;max-width:640px;margin:24px auto;padding:0 16px}' +
+          'h1{font-size:20px;margin:0}.meta{color:#666;font-size:13px;margin:6px 0 16px}.net{font-size:26px;font-weight:700}' +
+          'table{width:100%;border-collapse:collapse;margin-top:14px}th,td{padding:7px 4px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top;font-size:14px}' +
+          'th{background:#f6f3f0}.n{text-align:right;white-space:nowrap}.sub{color:#777;font-size:12px}.foot{margin-top:24px;color:#888;font-size:12px}' +
+          '@media print{body{margin:0}}</style></head><body>' +
+          '<h1>貓燙有限公司　薪資單</h1><div class="meta">' + m + '　｜　' + esc2(x.name) + '　' + esc2(x.employment_type || '') + '</div>' +
+          '<div class="net">實領 NT$ ' + x.net.toLocaleString('zh-TW') + '</div>' +
+          '<div class="meta">應發 ' + x.gross.toLocaleString('zh-TW') + '　扣除 ' + x.deduction.toLocaleString('zh-TW') + '</div>' +
+          '<table><tr><th>應發項目</th><th class="n">' + x.gross.toLocaleString('zh-TW') + '</th></tr>' + rows(v.earning, false) + '</table>' +
+          '<table><tr><th>扣除項目</th><th class="n">−' + x.deduction.toLocaleString('zh-TW') + '</th></tr>' + rows(v.deduction, true) + '</table>' +
+          '<div class="foot">列印日期：' + new Date().toLocaleDateString('zh-TW') + '</div></body></html>';
+        w.document.open(); w.document.write(html); w.document.close();
+        setTimeout(function () { w.focus(); w.print(); }, 400);
+      })
+      .catch(function () { w.document.body.textContent = '連線失敗'; });
   }
 
   function deleteItem(i, btn) {
@@ -1245,5 +1401,6 @@
   if (existing) showApp(existing); else showLogin();
   initGoogle();
 </script>
+<div style="position:fixed;right:10px;bottom:6px;font-size:11px;color:#b5aca6;pointer-events:none">後台版本 2026-10-24</div>
 </body>
 </html>
