@@ -87,6 +87,21 @@
   input:focus, textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
   .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
   h3 { margin-top: 0; }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .toolbar input[type=month] { width: auto; }
+  .status { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 10px; background: #eee; color: var(--muted); }
+  .status.draft { background: #fff4d6; color: #8a6100; }
+  .status.approved { background: #e3f3e8; color: var(--ok); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #faf6f3; }
+  tr.selected { background: var(--brand-soft); }
+  tr.warn td { color: #8a6100; background: #fffaf0; }
+  td.minus { color: var(--danger); }
+  input.mins { width: 80px; padding: 5px 8px; }
+  .notice { background: #fff4d6; color: #6b4b00; border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
+  .totals { display: flex; gap: 24px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 15px; }
+  .totals b { font-size: 18px; }
+  select { padding: 8px 10px; font-size: 15px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   @media (max-width: 600px) {
     #auditTable th:nth-child(3), #auditTable td:nth-child(3) { display: none; }
     header .who { display: none; }
@@ -106,6 +121,8 @@
 <nav id="nav" class="hidden">
   <button data-tab="home" class="active">首頁</button>
   <button data-tab="salary">員工薪資設定</button>
+  <button data-tab="overtime">加班審核</button>
+  <button data-tab="payroll">薪資草稿</button>
 </nav>
 
 <main>
@@ -139,18 +156,18 @@
   <section id="salaryView" class="hidden">
     <div class="card">
       <h3>目前生效的設定</h3>
-      <p class="muted">「目前」指生效月份在本月或更早的最新一筆。每次儲存都會新增一筆紀錄，舊紀錄不會被覆蓋。</p>
+      <p class="muted">「目前」指生效日在今天或更早的最新一筆。每次儲存都會新增一筆紀錄，舊紀錄保留；同一天有多筆時，以最後建立的為準。</p>
       <div id="salaryError" class="error hidden"></div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>員工</th><th>類別</th><th>生效月份</th>
+              <th>員工</th><th>身分</th><th>生效日</th>
               <th class="num">底薪／時薪</th><th class="num">勞保投保</th><th class="num">健保投保</th>
-              <th class="num">眷屬</th><th></th>
+              <th class="num">眷屬</th><th>離職日</th><th></th>
             </tr>
           </thead>
-          <tbody id="salaryBody"><tr><td colspan="8" class="muted">載入中…</td></tr></tbody>
+          <tbody id="salaryBody"><tr><td colspan="9" class="muted">載入中…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -161,8 +178,12 @@
       <p class="muted" id="editHint"></p>
       <div class="form-grid">
         <div>
-          <label for="fMonth">生效月份</label>
-          <input type="month" id="fMonth">
+          <label for="fDate">生效日</label>
+          <input type="date" id="fDate">
+        </div>
+        <div>
+          <label for="fType">身分</label>
+          <select id="fType" style="width:100%"><option value="正職">正職</option><option value="兼職">兼職</option></select>
         </div>
         <div>
           <label for="fPay" id="fPayLabel">底薪</label>
@@ -182,12 +203,13 @@
         </div>
         <div>
           <label for="fNote">備註（選填）</label>
-          <input type="text" id="fNote" maxlength="200" placeholder="例：調薪">
+          <input type="text" id="fNote" maxlength="200" placeholder="例：調薪、轉正職">
         </div>
       </div>
       <div class="actions">
         <button id="saveBtn">儲存</button>
         <button class="secondary" id="cancelBtn">取消</button>
+        <button class="secondary" id="syncTypeBtn">同步身分</button>
       </div>
       <div id="editMsg" class="hidden"></div>
 
@@ -196,12 +218,118 @@
         <table>
           <thead>
             <tr>
-              <th>生效月份</th><th class="num">底薪／時薪</th><th class="num">勞保投保</th>
+              <th>生效日</th><th>身分</th><th class="num">底薪／時薪</th><th class="num">勞保投保</th>
               <th class="num">健保投保</th><th class="num">眷屬</th><th>備註</th><th>建立時間</th>
             </tr>
           </thead>
           <tbody id="historyBody"></tbody>
         </table>
+      </div>
+
+      <h3 style="margin-top:24px">離職日</h3>
+      <div class="toolbar">
+        <input type="date" id="fTerm" style="width:auto">
+        <button class="small" id="termSave">儲存離職日</button>
+        <button class="secondary small" id="termClear">清除</button>
+      </div>
+      <p class="muted">填了離職日，離職當月的底薪會按天數計算（底薪 ÷ 30 × 在職天數），勞保按日計，月中離職當月不收健保。</p>
+      <div id="termMsg" class="hidden"></div>
+
+      <h3 style="margin-top:24px">留職停薪</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>開始日</th><th>結束日</th><th>備註</th><th></th></tr></thead>
+          <tbody id="breakBody"></tbody>
+        </table>
+      </div>
+      <div class="form-grid">
+        <div><label for="bStart">開始日</label><input type="date" id="bStart"></div>
+        <div><label for="bEnd">結束日（還沒確定可留空）</label><input type="date" id="bEnd"></div>
+        <div><label for="bNote">備註（選填）</label><input type="text" id="bNote" maxlength="200" placeholder="例：育嬰留停"></div>
+      </div>
+      <div class="actions"><button class="small" id="breakAdd">新增留職停薪</button></div>
+      <p class="muted">留職停薪期間不計底薪。之後做員工資料頁的年資計算時，也會扣除這段期間。</p>
+      <div id="breakMsg" class="hidden"></div>
+    </div>
+  </section>
+  <!-- 加班審核 -->
+  <section id="overtimeView" class="hidden">
+    <div class="card">
+      <div class="toolbar">
+        <h3 style="margin:0">加班審核</h3>
+        <input type="month" id="otMonth">
+        <button class="secondary small" id="otReload">重新載入</button>
+        <span id="otPeriodStatus"></span>
+      </div>
+      <p class="muted">列出正職「下班打卡晚於排班結束」的日子。只有核准的分鐘數會算加班費：前 120 分鐘 ×1.34，之後 ×1.67。兼職按打卡時數計薪，不在這裡。</p>
+      <div id="otError" class="error hidden"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>日期</th><th>員工</th><th>班別</th><th>排班結束</th><th>實際下班</th><th class="num">超出</th><th>核准分鐘</th><th></th></tr></thead>
+          <tbody id="otBody"><tr><td colspan="8" class="muted">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 薪資草稿 -->
+  <section id="payrollView" class="hidden">
+    <div class="card">
+      <div class="toolbar">
+        <h3 style="margin:0">薪資草稿</h3>
+        <input type="month" id="prMonth">
+        <button id="prGenerate">產生草稿</button>
+        <button class="secondary" id="prApprove">核准本月薪資</button>
+        <span id="prPeriodStatus"></span>
+      </div>
+      <div id="prNotice" class="notice hidden"></div>
+      <div id="prError" class="error hidden"></div>
+      <div id="prMsg" class="success hidden"></div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>員工</th><th>類別</th><th class="num">應發</th><th class="num">扣除</th><th class="num">實領</th><th>提醒</th></tr></thead>
+          <tbody id="prBody"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody>
+          <tfoot id="prFoot"></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="card hidden" id="slipCard">
+      <h3 id="slipTitle"></h3>
+      <div class="totals" id="slipTotals"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th>日期</th><th class="num">時數</th><th>計薪方式</th><th class="num">比例／金額</th><th class="num">時薪</th><th class="num">小計</th><th>說明</th><th></th></tr></thead>
+          <tbody id="slipBody"></tbody>
+        </table>
+      </div>
+
+      <div id="manualBox">
+        <h3 style="margin-top:24px">手動新增項目</h3>
+        <p class="muted">獎金、津貼或其他調整。重新產生草稿時，手動項目會保留。</p>
+        <div class="form-grid">
+          <div>
+            <label for="mDir">加項或扣項</label>
+            <select id="mDir"><option value="earning">加項（例：獎金、津貼）</option><option value="deduction">扣項（例：其他扣款）</option></select>
+          </div>
+          <div>
+            <label for="mCat">項目名稱</label>
+            <input type="text" id="mCat" maxlength="30" list="mCatList" placeholder="例：全勤獎金">
+            <datalist id="mCatList">
+              <option value="全勤獎金"><option value="成就獎金"><option value="甜點製作"><option value="研發加給"><option value="久任獎金"><option value="其他調整">
+            </datalist>
+          </div>
+          <div>
+            <label for="mAmt">金額</label>
+            <input type="text" inputmode="numeric" id="mAmt" placeholder="例：1000">
+          </div>
+          <div>
+            <label for="mNote">說明（選填）</label>
+            <input type="text" id="mNote" maxlength="200">
+          </div>
+        </div>
+        <div class="actions"><button id="mAdd">新增項目</button></div>
+        <div id="mMsg" class="hidden"></div>
       </div>
     </div>
   </section>
@@ -214,7 +342,7 @@
 
   var STORE_KEY = 'mt_admin_session';
   var session = null;
-  var salaryData = { employees: [], history: [] };
+  var salaryData = { employees: [], history: [], breaks: [] };
   var editing = null;
 
   var ACTION_LABELS = {
@@ -222,7 +350,18 @@
     login_denied: '登入被拒（非負責人）',
     login_invalid: '無效的登入嘗試',
     selftest: '系統自我檢查',
-    salary_save: '儲存薪資設定'
+    salary_save: '儲存薪資設定',
+    employee_type_sync: '同步員工身分',
+    employee_termination: '設定離職日',
+    break_add: '新增留職停薪',
+    break_delete: '刪除留職停薪',
+    salary_history_restore: '保留薪資設定舊紀錄',
+    overtime_approve: '核准加班',
+    overtime_void: '作廢加班',
+    payroll_generate: '產生薪資草稿',
+    payroll_item_add: '新增薪資手動項目',
+    payroll_item_delete: '刪除薪資手動項目',
+    payroll_approve: '核准薪資'
   };
 
   // ---------- 呼叫 Payroll API ----------
@@ -269,7 +408,7 @@
   function hide(el) { el.classList.add('hidden'); }
 
   function showLogin(msg) {
-    ['homeView', 'salaryView', 'topRight', 'nav'].forEach(function (id) { hide($(id)); });
+    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'topRight', 'nav'].forEach(function (id) { hide($(id)); });
     show($('loginView'));
     var err = $('loginError');
     if (msg) { err.textContent = msg; show(err); } else { hide(err); }
@@ -290,9 +429,11 @@
     Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === tab);
     });
-    hide($('homeView')); hide($('salaryView'));
+    ['homeView', 'salaryView', 'overtimeView', 'payrollView'].forEach(function (id) { hide($(id)); });
     if (tab === 'home') { show($('homeView')); loadAudit(); }
     if (tab === 'salary') { show($('salaryView')); hide($('editCard')); loadSalary(); }
+    if (tab === 'overtime') { show($('overtimeView')); loadOvertime(); }
+    if (tab === 'payroll') { show($('payrollView')); loadPayroll(); }
   }
   Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -333,7 +474,13 @@
           var detail = [];
           var a = r.after_data || {};
           if (a.email) detail.push(a.email);
-          if (a.employee_name) detail.push(a.employee_name + '（生效 ' + String(a.effective_month || '').slice(0, 7) + '）');
+          if (a.employee_name && (a.effective_date || a.effective_month)) detail.push(a.employee_name + '（生效 ' + (a.effective_date || String(a.effective_month).slice(0, 7)) + '）');
+          else if (a.employee_name && 'termination_date' in a) detail.push(a.employee_name + ' 離職日：' + (a.termination_date || '清除'));
+          else if (a.employee_name && a.start_date) detail.push(a.employee_name + ' ' + a.start_date + ' ~ ' + (a.end_date || '未定'));
+          else if (a.employee_name && a.employment_type) detail.push(a.employee_name + ' → ' + a.employment_type);
+          else if (a.employee_name && a.work_date) detail.push(a.employee_name + ' ' + a.work_date + ' ' + a.approved_minutes + ' 分鐘');
+          else if (a.employee_name) detail.push(a.employee_name + ' ' + (a.category || '') + ' ' + (a.amount ? money(a.amount) : ''));
+          if (a.month && !a.employee_name) detail.push(a.month);
           if (r.note) detail.push(r.note);
           addCell(tr, detail.join('　'), 'detail');
           tbody.appendChild(tr);
@@ -350,11 +497,11 @@
   function loadSalary() {
     var tbody = $('salaryBody');
     hide($('salaryError'));
-    tbody.innerHTML = '<tr><td colspan="8" class="muted">載入中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="muted">載入中…</td></tr>';
     return authed('salary_list')
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
-        salaryData = { employees: res.employees || [], history: res.history || [] };
+        salaryData = { employees: res.employees || [], history: res.history || [], breaks: res.breaks || [] };
         renderSalaryTable();
       })
       .catch(function (e) {
@@ -364,35 +511,38 @@
       });
   }
 
-  function thisMonth() {
+  function todayStr() {
     var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
+  // 依生效日新到舊、同一天依建立時間新到舊（後端已排好）
   function historyOf(empId) {
     return salaryData.history.filter(function (h) { return h.employee_id === empId; });
   }
 
-  // 目前生效：生效月份 ≤ 本月的最新一筆；若只有未來的，顯示最近的那筆並標「尚未生效」
+  // 目前生效：生效日 ≤ 今天的最新一筆；若只有未來的，顯示最近的那筆並標「尚未生效」
   function currentOf(empId) {
-    var cutoff = thisMonth() + '-01';
+    var cutoff = todayStr();
     var list = historyOf(empId);
     for (var i = 0; i < list.length; i++) {
-      if (list[i].effective_month <= cutoff) return { row: list[i], future: false };
+      if ((list[i].effective_date || list[i].effective_month) <= cutoff) return { row: list[i], future: false };
     }
     return list.length ? { row: list[list.length - 1], future: true } : null;
   }
 
+  function rowType(emp, row) { return row.employment_type || emp.employment_type; }
+
   function payOf(emp, row) {
-    var v = emp.employment_type === '正職' ? row.base_salary : row.hourly_rate;
-    return v === null || v === undefined ? '—' : money(v);
+    var v = rowType(emp, row) === '正職' ? row.base_salary : row.hourly_rate;
+    return v === null || v === undefined ? '—' : money(v) + (rowType(emp, row) === '兼職' ? '／時' : '');
   }
 
   function renderSalaryTable() {
     var tbody = $('salaryBody');
     tbody.innerHTML = '';
     if (!salaryData.employees.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="muted">沒有員工資料</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">沒有員工資料</td></tr>';
       return;
     }
     salaryData.employees.forEach(function (emp) {
@@ -411,17 +561,18 @@
         for (var i = 0; i < 4; i++) addCell(tr, '', 'num');
       } else {
         var r = cur.row;
-        addCell(tr, String(r.effective_month).slice(0, 7) + (cur.future ? '（尚未生效）' : ''));
+        addCell(tr, (r.effective_date || r.effective_month) + (cur.future ? '（尚未生效）' : ''));
         addCell(tr, payOf(emp, r), 'num');
         addCell(tr, money(r.labor_insured_amount), 'num');
         addCell(tr, money(r.health_insured_amount), 'num');
         addCell(tr, r.health_dependents === null ? '—' : String(r.health_dependents), 'num');
       }
+      addCell(tr, emp.termination_date || '');
 
       var btnTd = document.createElement('td');
       var btn = document.createElement('button');
       btn.className = 'small';
-      btn.textContent = cur ? '新增調整' : '設定';
+      btn.textContent = cur ? '查看／調整' : '設定';
       btn.addEventListener('click', function () { openEdit(emp); });
       btnTd.appendChild(btn);
       tr.appendChild(btnTd);
@@ -429,36 +580,45 @@
     });
   }
 
-  function openEdit(emp) {
-    editing = emp;
-    var isFull = emp.employment_type === '正職';
-    $('editTitle').textContent = emp.name + '：新增薪資設定';
+  function setPayLabel() {
+    var isFull = $('fType').value === '正職';
     $('fPayLabel').textContent = isFull ? '底薪（月薪）' : '時薪';
     $('fPay').placeholder = isFull ? '例：32000' : '例：200';
+  }
+  $('fType').addEventListener('change', function () { setPayLabel(); $('fPay').value = ''; resetSaveBtn(); hide($('editMsg')); });
 
-    // 預設值：沿用最新一筆，生效月份預設本月（到職日在未來則用到職月份）
+  function openEdit(emp) {
+    editing = emp;
+    $('editTitle').textContent = emp.name + '：薪資設定';
+
+    // 預設值：沿用最新一筆，生效日預設今天（到職日在未來則用到職日）
     var list = historyOf(emp.employee_id);
     var latest = list.length ? list[0] : null;
-    var month = thisMonth();
-    if (emp.hire_date && emp.hire_date.slice(0, 7) > month) month = emp.hire_date.slice(0, 7);
-    $('fMonth').value = month;
+    var date = todayStr();
+    if (emp.hire_date && emp.hire_date > date) date = emp.hire_date;
+    $('fDate').value = date;
+    $('fType').value = latest ? rowType(emp, latest) : emp.employment_type;
+    setPayLabel();
+    var isFull = $('fType').value === '正職';
     $('fPay').value = latest ? rawNum(isFull ? latest.base_salary : latest.hourly_rate) : '';
     $('fLabor').value = latest ? rawNum(latest.labor_insured_amount) : '';
     $('fHealth').value = latest ? rawNum(latest.health_insured_amount) : '';
     $('fDeps').value = latest && latest.health_dependents !== null ? latest.health_dependents : 0;
     $('fNote').value = '';
-    $('editHint').textContent = emp.hire_date ? '到職日：' + emp.hire_date : '';
+    $('editHint').textContent = (emp.hire_date ? '到職日：' + emp.hire_date + '　' : '') + '目前身分：' + emp.employment_type;
     hide($('editMsg'));
+    resetSaveBtn();
     $('saveBtn').disabled = false;
 
     var hb = $('historyBody');
     hb.innerHTML = '';
     if (!list.length) {
-      hb.innerHTML = '<tr><td colspan="7" class="muted">還沒有任何紀錄</td></tr>';
+      hb.innerHTML = '<tr><td colspan="8" class="muted">還沒有任何紀錄</td></tr>';
     } else {
       list.forEach(function (r) {
         var tr = document.createElement('tr');
-        addCell(tr, String(r.effective_month).slice(0, 7));
+        addCell(tr, r.effective_date || r.effective_month);
+        addCell(tr, rowType(emp, r));
         addCell(tr, payOf(emp, r), 'num');
         addCell(tr, money(r.labor_insured_amount), 'num');
         addCell(tr, money(r.health_insured_amount), 'num');
@@ -469,18 +629,79 @@
       });
     }
 
+    $('fTerm').value = emp.termination_date || '';
+    hide($('termMsg'));
+    renderBreaks(emp);
+    ['bStart', 'bEnd', 'bNote'].forEach(function (id) { $(id).value = ''; });
+    hide($('breakMsg'));
+
     show($('editCard'));
     $('editCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  function renderBreaks(emp) {
+    var tb = $('breakBody');
+    tb.innerHTML = '';
+    var list = salaryData.breaks.filter(function (b) { return b.employee_id === emp.employee_id; });
+    if (!list.length) { tb.innerHTML = '<tr><td colspan="4" class="muted">沒有留職停薪紀錄</td></tr>'; return; }
+    list.forEach(function (b) {
+      var tr = document.createElement('tr');
+      addCell(tr, b.start_date);
+      addCell(tr, b.end_date || '未定');
+      addCell(tr, b.note || '', 'detail');
+      var td = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.className = 'secondary small'; btn.textContent = '刪除';
+      btn.addEventListener('click', function () {
+        if (btn.getAttribute('data-confirm') !== '1') { btn.setAttribute('data-confirm', '1'); btn.textContent = '確定刪除？'; return; }
+        btn.disabled = true;
+        simpleAction('break_delete', { break_id: b.break_id }, 'breakMsg', '已刪除。');
+      });
+      td.appendChild(btn); tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+  }
+
+  // 執行一個動作，成功後重新載入並回到同一位員工
+  function simpleAction(action, data, msgId, okText) {
+    var msg = $(msgId);
+    return authed(action, { data: data })
+      .then(function (res) {
+        if (!res.ok) { msg.className = 'error'; msg.textContent = res.error || '失敗'; show(msg); return; }
+        var empId = editing.employee_id;
+        return loadSalary().then(function () {
+          var emp = salaryData.employees.filter(function (e) { return e.employee_id === empId; })[0];
+          if (emp) openEdit(emp);
+          var m = $(msgId); m.className = 'success'; m.textContent = res.message || okText; show(m);
+        });
+      })
+      .catch(function (e) { if (e.message !== 'unauthorized') { msg.className = 'error'; msg.textContent = '連線失敗，請重新整理確認'; show(msg); } });
+  }
+
+  $('termSave').addEventListener('click', function () {
+    if (!$('fTerm').value) { var m = $('termMsg'); m.className = 'error'; m.textContent = '請選擇離職日'; show(m); return; }
+    simpleAction('employee_set_termination', { employee_id: editing.employee_id, termination_date: $('fTerm').value }, 'termMsg', '已儲存離職日。');
+  });
+  $('termClear').addEventListener('click', function () {
+    simpleAction('employee_set_termination', { employee_id: editing.employee_id, termination_date: null }, 'termMsg', '已清除離職日。');
+  });
+  $('breakAdd').addEventListener('click', function () {
+    if (!$('bStart').value) { var m = $('breakMsg'); m.className = 'error'; m.textContent = '請選擇開始日'; show(m); return; }
+    simpleAction('break_add', { employee_id: editing.employee_id, start_date: $('bStart').value, end_date: $('bEnd').value || null, note: $('bNote').value.trim() }, 'breakMsg', '已新增。');
+  });
+  $('syncTypeBtn').addEventListener('click', function () {
+    simpleAction('employee_sync_type', { employee_id: editing.employee_id }, 'editMsg', '已同步。');
+  });
 
   $('cancelBtn').addEventListener('click', function () { hide($('editCard')); editing = null; });
 
   $('saveBtn').addEventListener('click', function () {
     if (!editing) return;
-    var isFull = editing.employment_type === '正職';
+    var isFull = $('fType').value === '正職';
     var data = {
       employee_id: editing.employee_id,
-      effective_month: $('fMonth').value,
+      effective_date: $('fDate').value,
+      employment_type: $('fType').value,
       labor_insured_amount: $('fLabor').value.trim(),
       health_insured_amount: $('fHealth').value.trim(),
       health_dependents: $('fDeps').value.trim(),
@@ -488,7 +709,8 @@
     };
     if (isFull) data.base_salary = $('fPay').value.trim(); else data.hourly_rate = $('fPay').value.trim();
 
-    var summary = editing.name + '\n生效月份：' + data.effective_month +
+    var summary = editing.name + '\n生效日：' + data.effective_date + '\n身分：' + data.employment_type +
+      (data.employment_type !== editing.employment_type ? '（身分轉換）' : '') +
       '\n' + (isFull ? '底薪：' : '時薪：') + (isFull ? data.base_salary : data.hourly_rate) +
       '\n勞保投保：' + data.labor_insured_amount + '\n健保投保：' + data.health_insured_amount +
       '\n眷屬人數：' + data.health_dependents;
@@ -515,12 +737,13 @@
           $('saveBtn').disabled = false;
           return;
         }
-        var emp = editing;
+        var empId = editing.employee_id;
         return loadSalary().then(function () {
-          openEdit(emp);
+          var emp = salaryData.employees.filter(function (e) { return e.employee_id === empId; })[0];
+          if (emp) openEdit(emp);
           var m = $('editMsg');
           m.className = 'success';
-          m.textContent = '已儲存。';
+          m.textContent = '已儲存。' + (res.typeNote ? res.typeNote : '');
           show(m);
         });
       })
@@ -534,7 +757,7 @@
   });
 
   // 只要改了任何欄位，就要重新確認
-  ['fMonth', 'fPay', 'fLabor', 'fHealth', 'fDeps', 'fNote'].forEach(function (id) {
+  ['fDate', 'fPay', 'fLabor', 'fHealth', 'fDeps', 'fNote'].forEach(function (id) {
     $(id).addEventListener('input', function () { resetSaveBtn(); hide($('editMsg')); });
   });
 
@@ -542,6 +765,316 @@
     $('saveBtn').removeAttribute('data-confirm');
     $('saveBtn').textContent = '儲存';
   }
+
+  // ---------- 月份預設：10 號（含）以前預設上個月，之後預設本月 ----------
+  function defaultMonth() {
+    var d = new Date();
+    if (d.getDate() <= 10) d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  $('otMonth').value = defaultMonth();
+  $('prMonth').value = defaultMonth();
+
+  function periodBadge(el, period) {
+    el.innerHTML = '';
+    var b = document.createElement('span');
+    if (!period) { b.className = 'status'; b.textContent = '尚未產生草稿'; }
+    else if (period.status === 'draft') { b.className = 'status draft'; b.textContent = '草稿'; }
+    else { b.className = 'status approved'; b.textContent = '已核准'; }
+    el.appendChild(b);
+  }
+
+  function showErr(id, text) { var e = $(id); e.textContent = text; show(e); }
+
+  // ---------- 加班審核 ----------
+  var otLocked = false;
+  function loadOvertime() {
+    var tbody = $('otBody');
+    hide($('otError'));
+    tbody.innerHTML = '<tr><td colspan="8" class="muted">載入中…</td></tr>';
+    authed('overtime_list', { month: $('otMonth').value })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error);
+        periodBadge($('otPeriodStatus'), res.period);
+        otLocked = !!(res.period && res.period.status !== 'draft');
+        tbody.innerHTML = '';
+        if (!res.rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="muted">這個月沒有晚下班的紀錄</td></tr>'; return; }
+        res.rows.forEach(function (r) {
+          var tr = document.createElement('tr');
+          addCell(tr, r.work_date.slice(5));
+          addCell(tr, r.name || '');
+          addCell(tr, r.shift_code ? r.shift_code + ' 班' : '無排班');
+          addCell(tr, r.shift_end || '—');
+          addCell(tr, r.actual_out || '—');
+          addCell(tr, r.over_minutes > 0 ? r.over_minutes + ' 分' : '—', 'num');
+
+          var tdIn = document.createElement('td');
+          var tdBtn = document.createElement('td');
+          if (r.approval) {
+            tdIn.textContent = '✅ ' + r.approval.approved_minutes + ' 分';
+            if (!otLocked) {
+              var v = document.createElement('button');
+              v.className = 'secondary small'; v.textContent = '作廢';
+              v.addEventListener('click', function () { voidOvertime(r, v); });
+              tdBtn.appendChild(v);
+            }
+          } else if (!otLocked) {
+            var inp = document.createElement('input');
+            inp.className = 'mins'; inp.inputMode = 'numeric';
+            inp.value = r.over_minutes > 0 ? r.over_minutes : '';
+            tdIn.appendChild(inp);
+            var b = document.createElement('button');
+            b.className = 'small'; b.textContent = '核准';
+            b.addEventListener('click', function () { approveOvertime(r, inp, b); });
+            tdBtn.appendChild(b);
+          } else {
+            tdIn.textContent = '未核准';
+          }
+          tr.appendChild(tdIn); tr.appendChild(tdBtn);
+          tbody.appendChild(tr);
+        });
+      })
+      .catch(function (e) { if (e.message !== 'unauthorized') showErr('otError', '載入失敗：' + e.message); });
+  }
+
+  function approveOvertime(r, inp, btn) {
+    var m = inp.value.trim();
+    if (!/^\d+$/.test(m) || Number(m) < 1) { showErr('otError', '請填入核准的分鐘數'); return; }
+    btn.disabled = true;
+    authed('overtime_approve', { data: { employee_id: r.employee_id, work_date: r.work_date, minutes: m } })
+      .then(function (res) {
+        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '核准失敗'); return; }
+        loadOvertime();
+      })
+      .catch(function (e) { btn.disabled = false; if (e.message !== 'unauthorized') showErr('otError', '連線失敗，請重新載入確認'); });
+  }
+
+  function voidOvertime(r, btn) {
+    if (btn.getAttribute('data-confirm') !== '1') { btn.setAttribute('data-confirm', '1'); btn.textContent = '確定作廢？'; return; }
+    btn.disabled = true;
+    authed('overtime_void', { data: { approval_id: r.approval.approval_id } })
+      .then(function (res) {
+        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '作廢失敗'); return; }
+        loadOvertime();
+      })
+      .catch(function (e) { btn.disabled = false; if (e.message !== 'unauthorized') showErr('otError', '連線失敗，請重新載入確認'); });
+  }
+
+  $('otMonth').addEventListener('change', loadOvertime);
+  $('otReload').addEventListener('click', loadOvertime);
+
+  // ---------- 薪資草稿 ----------
+  var prData = null;
+  var prSelected = null;
+
+  function loadPayroll(keepSelection) {
+    var tbody = $('prBody');
+    ['prError', 'prNotice'].forEach(function (id) { hide($(id)); });
+    if (!keepSelection) { hide($('prMsg')); prSelected = null; hide($('slipCard')); }
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">載入中…</td></tr>';
+    $('prFoot').innerHTML = '';
+    return authed('payroll_get', { month: $('prMonth').value })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error);
+        prData = res;
+        renderPayroll();
+        if (prSelected) {
+          var still = res.payslips.filter(function (s) { return s.payslip_id === prSelected; })[0];
+          if (still) openSlip(still); else hide($('slipCard'));
+        }
+      })
+      .catch(function (e) { if (e.message !== 'unauthorized') showErr('prError', '載入失敗：' + e.message); });
+  }
+
+  function isLocked() { return !!(prData && prData.period && prData.period.status !== 'draft'); }
+
+  function renderPayroll() {
+    periodBadge($('prPeriodStatus'), prData.period);
+    var locked = isLocked();
+    $('prGenerate').textContent = prData.payslips.length ? '重新產生草稿' : '產生草稿';
+    $('prGenerate').disabled = locked;
+    $('prApprove').disabled = locked || !prData.payslips.length;
+    resetBtn($('prApprove'), '核准本月薪資');
+
+    var p = prData.pending;
+    if (!locked && (p.leaves || p.makeups)) {
+      $('prNotice').textContent = '這個月還有 ' + p.leaves + ' 筆請假、' + p.makeups + ' 筆補打卡待審核。建議先到 LIFF 審核完，再產生或重新產生草稿。';
+      show($('prNotice'));
+    }
+
+    var tbody = $('prBody');
+    tbody.innerHTML = '';
+    if (!prData.payslips.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">這個月還沒有草稿，請按「產生草稿」</td></tr>';
+      return;
+    }
+    var tg = 0, td = 0, tn = 0;
+    prData.payslips.forEach(function (s) {
+      var warns = itemsOf(s.payslip_id).filter(function (i) { return i.category === '⚠️ 提醒'; }).length;
+      var tr = document.createElement('tr');
+      tr.className = 'clickable' + (s.payslip_id === prSelected ? ' selected' : '');
+      addCell(tr, s.name || '');
+      addCell(tr, s.employment_type || '');
+      addCell(tr, money(s.gross_amount), 'num');
+      addCell(tr, money(s.deduction_amount), 'num');
+      addCell(tr, money(s.net_amount), 'num');
+      addCell(tr, warns ? '⚠️ ' + warns + ' 項' : '');
+      tr.addEventListener('click', function () { openSlip(s); });
+      tbody.appendChild(tr);
+      tg += Number(s.gross_amount); td += Number(s.deduction_amount); tn += Number(s.net_amount);
+    });
+    var f = document.createElement('tr');
+    addCell(f, '合計'); addCell(f, prData.payslips.length + ' 人');
+    addCell(f, money(tg), 'num'); addCell(f, money(td), 'num'); addCell(f, money(tn), 'num'); addCell(f, '');
+    Array.prototype.forEach.call(f.children, function (c) { c.style.fontWeight = '600'; });
+    $('prFoot').appendChild(f);
+  }
+
+  function itemsOf(pid) { return prData.items.filter(function (i) { return i.payslip_id === pid; }); }
+
+  function openSlip(s) {
+    prSelected = s.payslip_id;
+    Array.prototype.forEach.call($('prBody').children, function (tr, idx) {
+      tr.classList.toggle('selected', prData.payslips[idx] && prData.payslips[idx].payslip_id === s.payslip_id);
+    });
+    $('slipTitle').textContent = s.name + '　' + $('prMonth').value + ' 薪資明細';
+    var t = $('slipTotals');
+    t.innerHTML = '';
+    [['應發', s.gross_amount], ['扣除', s.deduction_amount], ['實領', s.net_amount]].forEach(function (x) {
+      var span = document.createElement('span');
+      span.textContent = x[0] + '　';
+      var b = document.createElement('b'); b.textContent = money(x[1]);
+      span.appendChild(b); t.appendChild(span);
+    });
+
+    var locked = isLocked();
+    var tb = $('slipBody');
+    tb.innerHTML = '';
+    itemsOf(s.payslip_id).forEach(function (i) {
+      var tr = document.createElement('tr');
+      var isWarn = i.category === '⚠️ 提醒';
+      if (isWarn) tr.className = 'warn';
+      addCell(tr, i.category + (i.is_manual ? '（手動）' : ''));
+      addCell(tr, i.item_date ? i.item_date.slice(5) : '');
+      addCell(tr, i.minutes === null || i.minutes === undefined ? '' : (Number(i.minutes) / 60).toFixed(2), 'num');
+      addCell(tr, isWarn ? '' : (i.pay_method || ''));
+      var ratio = '';
+      if (!isWarn && i.ratio_or_amount !== null && i.ratio_or_amount !== undefined) {
+        ratio = i.pay_method === '比例' ? '× ' + Number(i.ratio_or_amount) : money(i.ratio_or_amount);
+      }
+      addCell(tr, ratio, 'num');
+      addCell(tr, i.hourly_rate === null || i.hourly_rate === undefined ? '' : Number(i.hourly_rate).toFixed(2), 'num');
+      addCell(tr, isWarn ? '' : (i.direction === 'deduction' ? '−' : '+') + money(i.subtotal), 'num' + (i.direction === 'deduction' ? ' minus' : ''));
+      addCell(tr, i.note || '', 'detail');
+      var btnTd = document.createElement('td');
+      if (i.is_manual && !locked) {
+        var b = document.createElement('button');
+        b.className = 'secondary small'; b.textContent = '刪除';
+        b.addEventListener('click', function () { deleteItem(i, b); });
+        btnTd.appendChild(b);
+      }
+      tr.appendChild(btnTd);
+      tb.appendChild(tr);
+    });
+
+    if (locked) hide($('manualBox')); else show($('manualBox'));
+    hide($('mMsg'));
+    show($('slipCard'));
+  }
+
+  function deleteItem(i, btn) {
+    if (btn.getAttribute('data-confirm') !== '1') { btn.setAttribute('data-confirm', '1'); btn.textContent = '確定刪除？'; return; }
+    btn.disabled = true;
+    authed('payroll_item_delete', { data: { item_id: i.item_id } })
+      .then(function (res) {
+        if (!res.ok) { btn.disabled = false; showErr('prError', res.error || '刪除失敗'); return; }
+        loadPayroll(true);
+      })
+      .catch(function (e) { btn.disabled = false; if (e.message !== 'unauthorized') showErr('prError', '連線失敗，請重新載入確認'); });
+  }
+
+  $('mAdd').addEventListener('click', function () {
+    var msg = $('mMsg');
+    var data = {
+      payslip_id: prSelected, direction: $('mDir').value,
+      category: $('mCat').value.trim(), amount: $('mAmt').value.trim().replace(/,/g, ''), note: $('mNote').value.trim()
+    };
+    if (!data.category) { msg.className = 'error'; msg.textContent = '請填寫項目名稱'; show(msg); return; }
+    if (!/^\d+$/.test(data.amount) || Number(data.amount) < 1) { msg.className = 'error'; msg.textContent = '金額需為正整數'; show(msg); return; }
+    $('mAdd').disabled = true;
+    authed('payroll_item_add', { data: data })
+      .then(function (res) {
+        $('mAdd').disabled = false;
+        if (!res.ok) { msg.className = 'error'; msg.textContent = res.error || '新增失敗'; show(msg); return; }
+        $('mCat').value = ''; $('mAmt').value = ''; $('mNote').value = '';
+        return loadPayroll(true).then(function () {
+          var m = $('mMsg'); m.className = 'success'; m.textContent = '已新增。'; show(m);
+        });
+      })
+      .catch(function (e) { $('mAdd').disabled = false; if (e.message !== 'unauthorized') { msg.className = 'error'; msg.textContent = '連線失敗，請重新載入確認'; show(msg); } });
+  });
+
+  function generate(force) {
+    var btn = $('prGenerate');
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = '計算中…';
+    hide($('prError')); hide($('prMsg'));
+    authed('payroll_generate', { month: $('prMonth').value, force: !!force })
+      .then(function (res) {
+        btn.textContent = old; btn.disabled = false;
+        if (res.needForce) {
+          var n = $('prNotice');
+          n.innerHTML = '';
+          n.appendChild(document.createTextNode('這個月還有 ' + res.pending.leaves + ' 筆請假、' + res.pending.makeups + ' 筆補打卡待審核，產生的草稿可能不完整。'));
+          var b = document.createElement('button');
+          b.className = 'small'; b.style.marginLeft = '10px'; b.textContent = '仍要產生';
+          b.addEventListener('click', function () { generate(true); });
+          n.appendChild(b);
+          show(n);
+          return;
+        }
+        if (!res.ok) { showErr('prError', res.error || '產生失敗'); return; }
+        var skipped = res.summary.filter(function (x) { return x.skipped; });
+        var m = $('prMsg');
+        m.textContent = '已產生 ' + (res.summary.length - skipped.length) + ' 張薪資單。' +
+          (skipped.length ? '略過：' + skipped.map(function (x) { return x.name + '（' + x.skipped + '）'; }).join('、') : '');
+        show(m);
+        return loadPayroll(true).then(function () { show($('prMsg')); });
+      })
+      .catch(function (e) { btn.textContent = old; btn.disabled = false; if (e.message !== 'unauthorized') showErr('prError', '連線失敗，請重新載入確認'); });
+  }
+
+  $('prGenerate').addEventListener('click', function () {
+    var btn = $('prGenerate');
+    if (prData && prData.payslips.length && btn.getAttribute('data-confirm') !== '1') {
+      btn.setAttribute('data-confirm', '1');
+      btn.textContent = '確定重新產生？（手動項目會保留）';
+      return;
+    }
+    btn.removeAttribute('data-confirm');
+    generate(false);
+  });
+
+  $('prApprove').addEventListener('click', function () {
+    var btn = $('prApprove');
+    if (btn.getAttribute('data-confirm') !== '1') {
+      btn.setAttribute('data-confirm', '1');
+      btn.textContent = '核准後就不能再修改，確定核准？';
+      return;
+    }
+    btn.disabled = true;
+    authed('payroll_approve', { month: $('prMonth').value })
+      .then(function (res) {
+        if (!res.ok) { resetBtn(btn, '核准本月薪資'); btn.disabled = false; showErr('prError', res.error || '核准失敗'); return; }
+        loadPayroll(true).then(function () { var m = $('prMsg'); m.textContent = '已核准。'; show(m); });
+      })
+      .catch(function (e) { resetBtn(btn, '核准本月薪資'); btn.disabled = false; if (e.message !== 'unauthorized') showErr('prError', '連線失敗，請重新載入確認'); });
+  });
+
+  function resetBtn(btn, text) { btn.removeAttribute('data-confirm'); btn.textContent = text; }
+
+  $('prMonth').addEventListener('change', function () { resetBtn($('prGenerate'), '產生草稿'); loadPayroll(); });
 
   // ---------- 小工具 ----------
   // 一律用 textContent 放資料，避免資料內容被當成網頁程式執行
