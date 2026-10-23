@@ -97,6 +97,7 @@
   tr.selected { background: var(--brand-soft); }
   tr.warn td { color: #8a6100; background: #fffaf0; }
   td.minus { color: var(--danger); }
+  td.breakdown { white-space: pre-line; font-size: 13px; color: var(--text); min-width: 150px; line-height: 1.6; }
   input.mins { width: 80px; padding: 5px 8px; }
   .notice { background: #fff4d6; color: #6b4b00; border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
   .totals { display: flex; gap: 24px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 15px; }
@@ -250,6 +251,28 @@
       <div class="actions"><button class="small" id="breakAdd">新增留職停薪</button></div>
       <p class="muted">留職停薪期間不計底薪。之後做員工資料頁的年資計算時，也會扣除這段期間。</p>
       <div id="breakMsg" class="hidden"></div>
+
+      <h3 style="margin-top:24px">固定加項</h3>
+      <p class="muted">每月金額固定的加項（例如久任獎金、職務加給），每月草稿自動帶入；正職的固定加項會併入加班費與請假、遲到扣款的時薪。月中生效或停發時按天數比例計算。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th class="num">月額</th><th>生效日</th><th>結束日</th><th>備註</th><th></th></tr></thead>
+          <tbody id="allowBody"></tbody>
+        </table>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="aType">項目名稱</label>
+          <input type="text" id="aType" maxlength="30" list="aTypeList" placeholder="例：久任獎金">
+          <datalist id="aTypeList"><option value="久任獎金"><option value="職務加給"><option value="甜點製作"><option value="研發加給"></datalist>
+        </div>
+        <div><label for="aAmt">月額</label><input type="text" inputmode="numeric" id="aAmt" placeholder="例：1000"></div>
+        <div><label for="aStart">生效日</label><input type="date" id="aStart"></div>
+        <div><label for="aEnd">結束日（不確定可留空）</label><input type="date" id="aEnd"></div>
+        <div><label for="aNote">備註（選填）</label><input type="text" id="aNote" maxlength="200"></div>
+      </div>
+      <div class="actions"><button class="small" id="allowAdd">新增固定加項</button></div>
+      <div id="allowMsg" class="hidden"></div>
     </div>
   </section>
   <!-- 加班審核 -->
@@ -257,16 +280,16 @@
     <div class="card">
       <div class="toolbar">
         <h3 style="margin:0">加班審核</h3>
-        <input type="month" id="otMonth">
+        <span id="otMonth" class="toolbar"></span>
         <button class="secondary small" id="otReload">重新載入</button>
         <span id="otPeriodStatus"></span>
       </div>
-      <p class="muted">列出正職「下班打卡晚於排班結束」的日子。只有核准的分鐘數會算加班費：前 120 分鐘 ×1.34，之後 ×1.67。兼職按打卡時數計薪，不在這裡。</p>
+      <p class="muted">列出正職「下班打卡晚於排班結束」的日子。在場總工時 = 第一次上班到最後一次下班（含休息）。只有核准的分鐘數會算加班費：前 120 分鐘 ×1.34，之後 ×1.67。依勞動部見解，遲到後晚走、超過表定下班時間的部分仍屬延長工時。兼職按打卡時數計薪，不在這裡。</p>
       <div id="otError" class="error hidden"></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>日期</th><th>員工</th><th>班別</th><th>排班結束</th><th>實際下班</th><th class="num">超出</th><th>核准分鐘</th><th></th></tr></thead>
-          <tbody id="otBody"><tr><td colspan="8" class="muted">載入中…</td></tr></tbody>
+          <thead><tr><th>日期</th><th>員工</th><th>排班</th><th>上班</th><th>下班</th><th class="num">在場總工時</th><th class="num">超出下班</th><th>決定</th><th></th></tr></thead>
+          <tbody id="otBody"><tr><td colspan="10" class="muted">載入中…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -277,7 +300,7 @@
     <div class="card">
       <div class="toolbar">
         <h3 style="margin:0">薪資草稿</h3>
-        <input type="month" id="prMonth">
+        <span id="prMonth" class="toolbar"></span>
         <button id="prGenerate">產生草稿</button>
         <button class="secondary" id="prApprove">核准本月薪資</button>
         <span id="prPeriodStatus"></span>
@@ -287,8 +310,8 @@
       <div id="prMsg" class="success hidden"></div>
       <div class="table-wrap" style="margin-top:12px">
         <table>
-          <thead><tr><th>員工</th><th>類別</th><th class="num">應發</th><th class="num">扣除</th><th class="num">實領</th><th>提醒</th></tr></thead>
-          <tbody id="prBody"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody>
+          <thead><tr><th>員工</th><th>身分</th><th>應發明細</th><th class="num">應發合計</th><th>扣除明細</th><th class="num">扣除合計</th><th class="num">實領</th><th>提醒</th><th></th></tr></thead>
+          <tbody id="prBody"><tr><td colspan="9" class="muted">載入中…</td></tr></tbody>
           <tfoot id="prFoot"></tfoot>
         </table>
       </div>
@@ -357,7 +380,11 @@
     break_delete: '刪除留職停薪',
     salary_history_restore: '保留薪資設定舊紀錄',
     overtime_approve: '核准加班',
-    overtime_void: '作廢加班',
+    overtime_void: '撤銷加班決定',
+    overtime_reject: '不核准加班',
+    allowance_add: '新增固定加項',
+    allowance_end: '設定固定加項結束日',
+    allowance_delete: '刪除固定加項',
     payroll_generate: '產生薪資草稿',
     payroll_item_add: '新增薪資手動項目',
     payroll_item_delete: '刪除薪資手動項目',
@@ -478,7 +505,9 @@
           else if (a.employee_name && 'termination_date' in a) detail.push(a.employee_name + ' 離職日：' + (a.termination_date || '清除'));
           else if (a.employee_name && a.start_date) detail.push(a.employee_name + ' ' + a.start_date + ' ~ ' + (a.end_date || '未定'));
           else if (a.employee_name && a.employment_type) detail.push(a.employee_name + ' → ' + a.employment_type);
-          else if (a.employee_name && a.work_date) detail.push(a.employee_name + ' ' + a.work_date + ' ' + a.approved_minutes + ' 分鐘');
+          else if (a.employee_name && a.work_date) detail.push(a.employee_name + ' ' + a.work_date + ' ' + (a.status === 'rejected' ? '不核准' : a.approved_minutes + ' 分鐘'));
+          else if (a.employee_name && a.allowance_type) detail.push(a.employee_name + ' ' + a.allowance_type + ' ' + money(a.amount));
+          else if (a.allowance_type) detail.push(a.allowance_type + ' 結束日：' + (a.end_date || '清除'));
           else if (a.employee_name) detail.push(a.employee_name + ' ' + (a.category || '') + ' ' + (a.amount ? money(a.amount) : ''));
           if (a.month && !a.employee_name) detail.push(a.month);
           if (r.note) detail.push(r.note);
@@ -501,7 +530,7 @@
     return authed('salary_list')
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
-        salaryData = { employees: res.employees || [], history: res.history || [], breaks: res.breaks || [] };
+        salaryData = { employees: res.employees || [], history: res.history || [], breaks: res.breaks || [], allowances: res.allowances || [] };
         renderSalaryTable();
       })
       .catch(function (e) {
@@ -632,6 +661,10 @@
     $('fTerm').value = emp.termination_date || '';
     hide($('termMsg'));
     renderBreaks(emp);
+    renderAllowances(emp);
+    ['aType', 'aAmt', 'aEnd', 'aNote'].forEach(function (id) { $(id).value = ''; });
+    $('aStart').value = todayStr();
+    hide($('allowMsg'));
     ['bStart', 'bEnd', 'bNote'].forEach(function (id) { $(id).value = ''; });
     hide($('breakMsg'));
 
@@ -691,6 +724,52 @@
   });
   $('syncTypeBtn').addEventListener('click', function () {
     simpleAction('employee_sync_type', { employee_id: editing.employee_id }, 'editMsg', '已同步。');
+  });
+
+  function renderAllowances(emp) {
+    var tb = $('allowBody');
+    tb.innerHTML = '';
+    var list = (salaryData.allowances || []).filter(function (a) { return a.employee_id === emp.employee_id; });
+    if (!list.length) { tb.innerHTML = '<tr><td colspan="6" class="muted">沒有固定加項</td></tr>'; return; }
+    list.forEach(function (a) {
+      var tr = document.createElement('tr');
+      var ended = a.end_date && a.end_date < todayStr();
+      if (ended) tr.style.color = 'var(--muted)';
+      addCell(tr, a.allowance_type + (ended ? '（已停發）' : ''));
+      addCell(tr, money(a.amount), 'num');
+      addCell(tr, a.effective_date || a.effective_month);
+      addCell(tr, a.end_date || '');
+      addCell(tr, a.note || '', 'detail');
+      var td = document.createElement('td');
+      td.style.whiteSpace = 'nowrap';
+      var endInp = document.createElement('input');
+      endInp.type = 'date'; endInp.style.width = 'auto'; endInp.style.padding = '4px 6px'; endInp.value = a.end_date || '';
+      var endBtn = document.createElement('button');
+      endBtn.className = 'secondary small'; endBtn.textContent = '設定結束日'; endBtn.style.marginLeft = '6px';
+      endBtn.addEventListener('click', function () {
+        simpleAction('allowance_end', { allowance_id: a.allowance_id, end_date: endInp.value || null }, 'allowMsg', '已更新結束日。');
+      });
+      var del = document.createElement('button');
+      del.className = 'secondary small'; del.textContent = '刪除'; del.style.marginLeft = '6px';
+      del.title = '只在輸入錯誤時使用；正常停發請設定結束日';
+      del.addEventListener('click', function () {
+        if (del.getAttribute('data-confirm') !== '1') { del.setAttribute('data-confirm', '1'); del.textContent = '確定刪除？（輸入錯誤才刪）'; return; }
+        simpleAction('allowance_delete', { allowance_id: a.allowance_id }, 'allowMsg', '已刪除。');
+      });
+      td.appendChild(endInp); td.appendChild(endBtn); td.appendChild(del);
+      tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+  }
+
+  $('allowAdd').addEventListener('click', function () {
+    var m = $('allowMsg');
+    var amt = $('aAmt').value.trim().replace(/,/g, '');
+    if (!$('aType').value.trim()) { m.className = 'error'; m.textContent = '請填寫項目名稱'; show(m); return; }
+    if (!/^\d+$/.test(amt) || Number(amt) < 1) { m.className = 'error'; m.textContent = '月額需為正整數'; show(m); return; }
+    if (!$('aStart').value) { m.className = 'error'; m.textContent = '請選擇生效日'; show(m); return; }
+    simpleAction('allowance_add', { employee_id: editing.employee_id, allowance_type: $('aType').value.trim(), amount: amt,
+      effective_date: $('aStart').value, end_date: $('aEnd').value || null, note: $('aNote').value.trim() }, 'allowMsg', '已新增固定加項。');
   });
 
   $('cancelBtn').addEventListener('click', function () { hide($('editCard')); editing = null; });
@@ -772,6 +851,27 @@
     if (d.getDate() <= 10) d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   }
+  // 年份、月份兩個下拉選單；元素的 .value 讀寫 'YYYY-MM'
+  function makeMonthPicker(id, onChange) {
+    var el = $(id);
+    var ys = document.createElement('select'), ms = document.createElement('select');
+    var nowY = new Date().getFullYear();
+    for (var y = 2026; y <= Math.max(nowY + 1, 2026); y++) {
+      var o = document.createElement('option'); o.value = String(y); o.textContent = y + ' 年'; ys.appendChild(o);
+    }
+    for (var m = 1; m <= 12; m++) {
+      var o2 = document.createElement('option'); o2.value = String(m).padStart(2, '0'); o2.textContent = m + ' 月'; ms.appendChild(o2);
+    }
+    el.appendChild(ys); el.appendChild(ms);
+    Object.defineProperty(el, 'value', {
+      get: function () { return ys.value + '-' + ms.value; },
+      set: function (v) { ys.value = String(v).slice(0, 4); ms.value = String(v).slice(5, 7); }
+    });
+    ys.addEventListener('change', onChange); ms.addEventListener('change', onChange);
+    return el;
+  }
+  makeMonthPicker('otMonth', function () { loadOvertime(); });
+  makeMonthPicker('prMonth', function () { resetBtn($('prGenerate'), '產生草稿'); loadPayroll(); });
   $('otMonth').value = defaultMonth();
   $('prMonth').value = defaultMonth();
 
@@ -788,34 +888,42 @@
 
   // ---------- 加班審核 ----------
   var otLocked = false;
+  function fmtMin(m) {
+    if (m === null || m === undefined) return '—';
+    return Math.floor(m / 60) + ' 小時 ' + (m % 60) + ' 分';
+  }
+
   function loadOvertime() {
     var tbody = $('otBody');
     hide($('otError'));
-    tbody.innerHTML = '<tr><td colspan="8" class="muted">載入中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="muted">載入中…</td></tr>';
     authed('overtime_list', { month: $('otMonth').value })
       .then(function (res) {
         if (!res.ok) throw new Error(res.error);
         periodBadge($('otPeriodStatus'), res.period);
         otLocked = !!(res.period && res.period.status !== 'draft');
         tbody.innerHTML = '';
-        if (!res.rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="muted">這個月沒有晚下班的紀錄</td></tr>'; return; }
+        if (!res.rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="muted">這個月沒有晚下班的紀錄</td></tr>'; return; }
         res.rows.forEach(function (r) {
           var tr = document.createElement('tr');
           addCell(tr, r.work_date.slice(5));
           addCell(tr, r.name || '');
-          addCell(tr, r.shift_code ? r.shift_code + ' 班' : '無排班');
-          addCell(tr, r.shift_end || '—');
+          addCell(tr, r.shift_code ? r.shift_code + ' 班 ' + (r.shift_start || '') + '–' + (r.shift_end || '') : '無排班');
+          addCell(tr, r.actual_in || '—');
           addCell(tr, r.actual_out || '—');
+          addCell(tr, fmtMin(r.on_site_minutes), 'num');
           addCell(tr, r.over_minutes > 0 ? r.over_minutes + ' 分' : '—', 'num');
 
           var tdIn = document.createElement('td');
           var tdBtn = document.createElement('td');
-          if (r.approval) {
-            tdIn.textContent = '✅ ' + r.approval.approved_minutes + ' 分';
+          tdBtn.style.whiteSpace = 'nowrap';
+          var dec = r.decision;
+          if (dec) {
+            tdIn.textContent = dec.status === 'approved' ? '✅ 核准 ' + dec.approved_minutes + ' 分' : '❌ 不核准';
             if (!otLocked) {
               var v = document.createElement('button');
-              v.className = 'secondary small'; v.textContent = '作廢';
-              v.addEventListener('click', function () { voidOvertime(r, v); });
+              v.className = 'secondary small'; v.textContent = '撤銷';
+              v.addEventListener('click', function () { voidOvertime(dec, v); });
               tdBtn.appendChild(v);
             }
           } else if (!otLocked) {
@@ -825,10 +933,13 @@
             tdIn.appendChild(inp);
             var b = document.createElement('button');
             b.className = 'small'; b.textContent = '核准';
-            b.addEventListener('click', function () { approveOvertime(r, inp, b); });
-            tdBtn.appendChild(b);
+            b.addEventListener('click', function () { decideOvertime('overtime_approve', r, inp, b); });
+            var x = document.createElement('button');
+            x.className = 'secondary small'; x.textContent = '不核准'; x.style.marginLeft = '6px';
+            x.addEventListener('click', function () { decideOvertime('overtime_reject', r, null, x); });
+            tdBtn.appendChild(b); tdBtn.appendChild(x);
           } else {
-            tdIn.textContent = '未核准';
+            tdIn.textContent = '未審核';
           }
           tr.appendChild(tdIn); tr.appendChild(tdBtn);
           tbody.appendChild(tr);
@@ -837,30 +948,33 @@
       .catch(function (e) { if (e.message !== 'unauthorized') showErr('otError', '載入失敗：' + e.message); });
   }
 
-  function approveOvertime(r, inp, btn) {
-    var m = inp.value.trim();
-    if (!/^\d+$/.test(m) || Number(m) < 1) { showErr('otError', '請填入核准的分鐘數'); return; }
+  function decideOvertime(action, r, inp, btn) {
+    var data = { employee_id: r.employee_id, work_date: r.work_date };
+    if (inp) {
+      var m = inp.value.trim();
+      if (!/^\d+$/.test(m) || Number(m) < 1) { showErr('otError', '請填入核准的分鐘數'); return; }
+      data.minutes = m;
+    }
     btn.disabled = true;
-    authed('overtime_approve', { data: { employee_id: r.employee_id, work_date: r.work_date, minutes: m } })
+    authed(action, { data: data })
       .then(function (res) {
-        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '核准失敗'); return; }
+        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '操作失敗'); return; }
         loadOvertime();
       })
       .catch(function (e) { btn.disabled = false; if (e.message !== 'unauthorized') showErr('otError', '連線失敗，請重新載入確認'); });
   }
 
-  function voidOvertime(r, btn) {
-    if (btn.getAttribute('data-confirm') !== '1') { btn.setAttribute('data-confirm', '1'); btn.textContent = '確定作廢？'; return; }
+  function voidOvertime(dec, btn) {
+    if (btn.getAttribute('data-confirm') !== '1') { btn.setAttribute('data-confirm', '1'); btn.textContent = '確定撤銷？'; return; }
     btn.disabled = true;
-    authed('overtime_void', { data: { approval_id: r.approval.approval_id } })
+    authed('overtime_void', { data: { approval_id: dec.approval_id } })
       .then(function (res) {
-        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '作廢失敗'); return; }
+        if (!res.ok) { btn.disabled = false; showErr('otError', res.error || '撤銷失敗'); return; }
         loadOvertime();
       })
       .catch(function (e) { btn.disabled = false; if (e.message !== 'unauthorized') showErr('otError', '連線失敗，請重新載入確認'); });
   }
 
-  $('otMonth').addEventListener('change', loadOvertime);
   $('otReload').addEventListener('click', loadOvertime);
 
   // ---------- 薪資草稿 ----------
@@ -871,7 +985,7 @@
     var tbody = $('prBody');
     ['prError', 'prNotice'].forEach(function (id) { hide($(id)); });
     if (!keepSelection) { hide($('prMsg')); prSelected = null; hide($('slipCard')); }
-    tbody.innerHTML = '<tr><td colspan="6" class="muted">載入中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="muted">載入中…</td></tr>';
     $('prFoot').innerHTML = '';
     return authed('payroll_get', { month: $('prMonth').value })
       .then(function (res) {
@@ -905,7 +1019,7 @@
     var tbody = $('prBody');
     tbody.innerHTML = '';
     if (!prData.payslips.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">這個月還沒有草稿，請按「產生草稿」</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">這個月還沒有草稿，請按「產生草稿」</td></tr>';
       return;
     }
     var tg = 0, td = 0, tn = 0;
@@ -915,22 +1029,41 @@
       tr.className = 'clickable' + (s.payslip_id === prSelected ? ' selected' : '');
       addCell(tr, s.name || '');
       addCell(tr, s.employment_type || '');
+      addCell(tr, breakdown(s.payslip_id, 'earning'), 'breakdown');
       addCell(tr, money(s.gross_amount), 'num');
+      addCell(tr, breakdown(s.payslip_id, 'deduction'), 'breakdown');
       addCell(tr, money(s.deduction_amount), 'num');
-      addCell(tr, money(s.net_amount), 'num');
+      var netTd = addCell(tr, money(s.net_amount), 'num');
+      netTd.style.fontWeight = '600';
       addCell(tr, warns ? '⚠️ ' + warns + ' 項' : '');
+      var bt = document.createElement('td');
+      var ob = document.createElement('button');
+      ob.className = 'small'; ob.textContent = '明細／調整';
+      bt.appendChild(ob); tr.appendChild(bt);
       tr.addEventListener('click', function () { openSlip(s); });
       tbody.appendChild(tr);
       tg += Number(s.gross_amount); td += Number(s.deduction_amount); tn += Number(s.net_amount);
     });
     var f = document.createElement('tr');
     addCell(f, '合計'); addCell(f, prData.payslips.length + ' 人');
-    addCell(f, money(tg), 'num'); addCell(f, money(td), 'num'); addCell(f, money(tn), 'num'); addCell(f, '');
+    addCell(f, ''); addCell(f, money(tg), 'num'); addCell(f, ''); addCell(f, money(td), 'num'); addCell(f, money(tn), 'num'); addCell(f, ''); addCell(f, '');
     Array.prototype.forEach.call(f.children, function (c) { c.style.fontWeight = '600'; });
     $('prFoot').appendChild(f);
   }
 
   function itemsOf(pid) { return prData.items.filter(function (i) { return i.payslip_id === pid; }); }
+
+  // 同一類合併：「事假 ×2　912」；金額 0 與提醒不列
+  function breakdown(pid, dir) {
+    var groups = {}, order = [];
+    itemsOf(pid).forEach(function (i) {
+      if (i.direction !== dir || i.category === '⚠️ 提醒' || !Number(i.subtotal)) return;
+      var k = i.category + (i.is_manual ? '（手動）' : '');
+      if (!groups[k]) { groups[k] = { n: 0, sum: 0 }; order.push(k); }
+      groups[k].n++; groups[k].sum += Number(i.subtotal);
+    });
+    return order.map(function (k) { return k + (groups[k].n > 1 ? ' ×' + groups[k].n : '') + '　' + money(groups[k].sum); }).join('\n');
+  }
 
   function openSlip(s) {
     prSelected = s.payslip_id;
@@ -1074,7 +1207,7 @@
 
   function resetBtn(btn, text) { btn.removeAttribute('data-confirm'); btn.textContent = text; }
 
-  $('prMonth').addEventListener('change', function () { resetBtn($('prGenerate'), '產生草稿'); loadPayroll(); });
+
 
   // ---------- 小工具 ----------
   // 一律用 textContent 放資料，避免資料內容被當成網頁程式執行
@@ -1083,6 +1216,7 @@
     td.textContent = text;
     if (cls) td.className = cls;
     tr.appendChild(td);
+    return td;
   }
 
   function money(v) {
