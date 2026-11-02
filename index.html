@@ -124,6 +124,7 @@
   <button data-tab="salary">員工薪資設定</button>
   <button data-tab="overtime">加班審核</button>
   <button data-tab="payroll">薪資草稿</button>
+  <button data-tab="stats">出勤休假統計</button>
 </nav>
 
 <main>
@@ -278,6 +279,26 @@
       </div>
       <div class="actions"><button class="small" id="allowAdd">新增固定加項</button></div>
       <div id="allowMsg" class="hidden"></div>
+    </div>
+  </section>
+  <!-- 出勤休假統計 -->
+  <section id="statsView" class="hidden">
+    <div class="card">
+      <div class="toolbar">
+        <h3 style="margin:0">出勤休假統計</h3>
+        <span id="stMonth" class="toolbar"></span>
+        <button class="secondary small" id="stReload">重新載入</button>
+        <button class="secondary small" id="stCsv">下載 CSV</button>
+      </div>
+      <p class="muted">在場時數 = 每天第一次上班到最後一次下班（含休息）；打卡工時 = 每段上班到下班相加。遲到跟薪資計算同規則（W 班不算）。假別欄是當月；特休「本期」是目前週年期間累計，餘假「今年」是年度累計；剩餘是今天還有的額度。1 天 = 8 小時。點員工姓名可展開明細。</p>
+      <div id="stError" class="error hidden"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>員工</th><th class="num">出勤天數</th><th class="num">在場時數</th><th class="num">打卡工時</th><th class="num">遲到</th><th class="num">加班核准</th><th class="num">事假</th><th class="num">病假</th><th class="num">生理假</th><th class="num">公假</th><th class="num">颱風假</th><th class="num">特休 當月／本期／剩餘</th><th class="num">餘假 當月／今年／剩餘</th></tr></thead>
+          <tbody id="stBody"><tr><td colspan="13" class="muted">載入中…</td></tr></tbody>
+          <tfoot id="stFoot"></tfoot>
+        </table>
+      </div>
     </div>
   </section>
   <!-- 加班審核 -->
@@ -475,11 +496,12 @@
     Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === tab);
     });
-    ['homeView', 'salaryView', 'overtimeView', 'payrollView'].forEach(function (id) { hide($(id)); });
+    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'statsView'].forEach(function (id) { hide($(id)); });
     if (tab === 'home') { show($('homeView')); loadAudit(); }
     if (tab === 'salary') { show($('salaryView')); hide($('editCard')); loadSalary(); }
     if (tab === 'overtime') { show($('overtimeView')); loadOvertime(); }
     if (tab === 'payroll') { show($('payrollView')); loadPayroll(); }
+    if (tab === 'stats') { show($('statsView')); loadStats(); }
   }
   Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -907,6 +929,8 @@
   makeMonthPicker('otMonth', function () { loadOvertime(); });
   makeMonthPicker('prMonth', function () { resetBtn($('prGenerate'), '產生草稿'); loadPayroll(); });
   $('otMonth').value = defaultMonth();
+  makeMonthPicker('stMonth', function () { loadStats(); });
+  $('stMonth').value = defaultMonth();
   $('prMonth').value = defaultMonth();
 
   function periodBadge(el, period) {
@@ -921,6 +945,100 @@
   }
 
   function showErr(id, text) { var e = $(id); e.textContent = text; show(e); }
+
+  // ---------- 出勤休假統計 ----------
+  // 分鐘 → 「X 天 Y 小時」（1 天 = 8 小時）
+  function fmtDH(m) {
+    m = Math.round(Number(m) || 0);
+    if (!m) return '0';
+    var d = Math.floor(m / 480), rest = m % 480;
+    var h = Math.round(rest / 60 * 10) / 10;
+    var out = [];
+    if (d) out.push(d + ' 天');
+    if (h) out.push(h + ' 小時');
+    return out.join(' ');
+  }
+  function fmtH(m) { return (Math.round((Number(m) || 0) / 6) / 10) + ' 小時'; }
+  var stRows = [];
+  function loadStats() {
+    var tbody = $('stBody');
+    hide($('stError'));
+    $('stFoot').innerHTML = '';
+    tbody.innerHTML = '<tr><td colspan="13" class="muted">載入中…</td></tr>';
+    authed('attendance_stats', { month: $('stMonth').value })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error);
+        stRows = res.rows;
+        tbody.innerHTML = '';
+        if (!res.rows.length) { tbody.innerHTML = '<tr><td colspan="13" class="muted">這個月沒有資料</td></tr>'; return; }
+        var tot = { days: 0, on: 0, wk: 0, lc: 0, lm: 0, ot: 0 };
+        res.rows.forEach(function (r) {
+          tot.days += r.days; tot.on += r.onsite_minutes; tot.wk += r.worked_minutes; tot.lc += r.late_count; tot.lm += r.late_minutes; tot.ot += r.overtime_minutes;
+          var tr = document.createElement('tr');
+          var nameTd = addCell(tr, '▸ ' + r.name + '（' + (r.employment_type || '') + '）');
+          nameTd.style.cursor = 'pointer'; nameTd.style.whiteSpace = 'nowrap';
+          addCell(tr, String(r.days), 'num');
+          addCell(tr, fmtH(r.onsite_minutes), 'num');
+          addCell(tr, fmtH(r.worked_minutes), 'num');
+          addCell(tr, r.late_count ? r.late_count + ' 次／' + r.late_minutes + ' 分' : '—', 'num');
+          addCell(tr, r.overtime_minutes ? fmtH(r.overtime_minutes) : '—', 'num');
+          ['事假', '病假', '生理假', '公假', '颱風假'].forEach(function (t) { addCell(tr, r.leave_month[t] ? fmtDH(r.leave_month[t]) : '—', 'num'); });
+          addCell(tr, fmtDH(r.leave_month['特休']) + '／' + fmtDH(r.annual.used_period) + '／' + fmtDH(r.annual.remain.minutes), 'num');
+          addCell(tr, fmtDH(r.leave_month['餘假']) + '／' + fmtDH(r.comp.used_year) + '／' + fmtDH(r.comp.remain.minutes), 'num');
+          tbody.appendChild(tr);
+
+          var dt = document.createElement('tr');
+          dt.className = 'hidden';
+          var td = document.createElement('td');
+          td.colSpan = 13;
+          td.style.background = '#faf7f5';
+          var lines = [];
+          lines.push('特休本期：' + r.annual.period + (r.annual.remain.expiry ? '；最近到期 ' + r.annual.remain.expiry : ''));
+          if (r.comp.remain.expiry) lines.push('餘假最近到期：' + r.comp.remain.expiry);
+          if (r.leave_items.length) lines.push('請假：' + r.leave_items.map(function (x) { return x.type + ' ' + x.label + '（' + fmtDH(x.minutes) + '）'; }).join('、'));
+          else lines.push('請假：本月沒有');
+          if (r.late_items.length) lines.push('遲到：' + r.late_items.map(function (x) { return x.label + '（' + x.minutes + ' 分）'; }).join('、'));
+          if (r.missing_days.length) lines.push('⚠️ 打卡不完整：' + r.missing_days.join('、'));
+          lines.forEach(function (t) { var d = document.createElement('div'); d.textContent = t; d.style.padding = '3px 0'; td.appendChild(d); });
+          dt.appendChild(td);
+          tbody.appendChild(dt);
+          nameTd.addEventListener('click', function () {
+            var open = dt.classList.contains('hidden');
+            dt.classList.toggle('hidden');
+            nameTd.textContent = (open ? '▾ ' : '▸ ') + r.name + '（' + (r.employment_type || '') + '）';
+          });
+        });
+        var fr = document.createElement('tr');
+        fr.style.fontWeight = '600';
+        addCell(fr, '合計');
+        addCell(fr, String(tot.days), 'num');
+        addCell(fr, fmtH(tot.on), 'num');
+        addCell(fr, fmtH(tot.wk), 'num');
+        addCell(fr, tot.lc ? tot.lc + ' 次／' + tot.lm + ' 分' : '—', 'num');
+        addCell(fr, tot.ot ? fmtH(tot.ot) : '—', 'num');
+        for (var i = 0; i < 7; i++) addCell(fr, '');
+        $('stFoot').appendChild(fr);
+      })
+      .catch(function (e) { tbody.innerHTML = ''; showErr('stError', '讀取失敗：' + e.message); });
+  }
+  $('stReload').addEventListener('click', loadStats);
+  $('stCsv').addEventListener('click', function () {
+    if (!stRows.length) return;
+    var head = ['員工', '身分', '出勤天數', '在場時數(小時)', '打卡工時(小時)', '遲到次數', '遲到分鐘', '加班核准(小時)', '事假', '病假', '生理假', '公假', '颱風假', '特休當月', '特休本期累計', '特休剩餘', '特休最近到期', '餘假當月', '餘假今年累計', '餘假剩餘', '餘假最近到期'];
+    var h = function (m) { return Math.round(m / 6) / 10; };
+    var lines = [head];
+    stRows.forEach(function (r) {
+      lines.push([r.name, r.employment_type, r.days, h(r.onsite_minutes), h(r.worked_minutes), r.late_count, r.late_minutes, h(r.overtime_minutes),
+        fmtDH(r.leave_month['事假']), fmtDH(r.leave_month['病假']), fmtDH(r.leave_month['生理假']), fmtDH(r.leave_month['公假']), fmtDH(r.leave_month['颱風假']),
+        fmtDH(r.leave_month['特休']), fmtDH(r.annual.used_period), fmtDH(r.annual.remain.minutes), r.annual.remain.expiry || '',
+        fmtDH(r.leave_month['餘假']), fmtDH(r.comp.used_year), fmtDH(r.comp.remain.minutes), r.comp.remain.expiry || '']);
+    });
+    var csv = '﻿' + lines.map(function (row) { return row.map(function (v) { v = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = '出勤休假統計_' + $('stMonth').value + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
 
   // ---------- 加班審核 ----------
   var otLocked = false;
@@ -1401,6 +1519,6 @@
   if (existing) showApp(existing); else showLogin();
   initGoogle();
 </script>
-<div style="position:fixed;right:10px;bottom:6px;font-size:11px;color:#b5aca6;pointer-events:none">後台版本 2026-10-31</div>
+<div style="position:fixed;right:10px;bottom:6px;font-size:11px;color:#b5aca6;pointer-events:none">後台版本 2026-11-02</div>
 </body>
 </html>
