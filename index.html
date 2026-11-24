@@ -2,6 +2,7 @@
 <!--
  ===== 版本紀錄（最新在最上面）=====
  檔名：index.html（負責人後台）　｜　放在 GitHub Pages：mountaintown-admin（畫面右下角「後台版本」就是這裡的版本）
+ 2026-11-19-01  03:20  新增「帳務」分頁（營業額對帳、月報）；改掉輸入框範例數字；說明文字拿掉計算細節；登出時一併隱藏統計頁
  2026-11-11-01  22:58  加上版本紀錄（功能與上一版相同）
  2026-11-02     --:--  （D 對話交付）出勤休假統計分頁等
  時間為 Claude 交付檔案的台灣時間；「--:--」表示當時沒有記錄時間。
@@ -14,6 +15,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>貓燙後台</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <style>
   :root {
     --brand: #BE5A34;
@@ -133,6 +135,7 @@
   <button data-tab="overtime">加班審核</button>
   <button data-tab="payroll">薪資草稿</button>
   <button data-tab="stats">出勤休假統計</button>
+  <button data-tab="acct" id="acctTabBtn" class="hidden">帳務</button>
 </nav>
 
 <main>
@@ -197,15 +200,15 @@
         </div>
         <div>
           <label for="fPay" id="fPayLabel">底薪</label>
-          <input type="text" inputmode="numeric" id="fPay" placeholder="例：32000">
+          <input type="text" inputmode="numeric" id="fPay" placeholder="請輸入金額">
         </div>
         <div>
           <label for="fLabor">勞保投保金額</label>
-          <input type="text" inputmode="numeric" id="fLabor" placeholder="例：31800">
+          <input type="text" inputmode="numeric" id="fLabor" placeholder="請輸入金額">
         </div>
         <div>
           <label for="fHealth">健保投保金額</label>
-          <input type="text" inputmode="numeric" id="fHealth" placeholder="例：31800">
+          <input type="text" inputmode="numeric" id="fHealth" placeholder="請輸入金額">
         </div>
         <div>
           <label for="fDeps">健保眷屬人數</label>
@@ -242,7 +245,7 @@
         <button class="small" id="termSave">儲存離職日</button>
         <button class="secondary small" id="termClear">清除</button>
       </div>
-      <p class="muted">填了離職日，離職當月的底薪會按天數計算（底薪 ÷ 30 × 在職天數），勞保按日計，月中離職當月不收健保。</p>
+      <p class="muted">填了離職日，離職當月的薪資與勞健保會依在職天數與相關規定計算。</p>
       <div id="termMsg" class="hidden"></div>
 
       <h3 style="margin-top:24px">帳號狀態</h3>
@@ -267,7 +270,7 @@
       <div id="breakMsg" class="hidden"></div>
 
       <h3 style="margin-top:24px">固定加項</h3>
-      <p class="muted">每月金額固定的加項（例如久任獎金、職務加給），每月草稿自動帶入；正職的固定加項會併入加班費與請假、遲到扣款的時薪。月中生效或停發時按天數比例計算。</p>
+      <p class="muted">每月金額固定的加項（例如久任獎金、職務加給），每月草稿自動帶入；依規定計入正職的時薪計算基礎；月中生效或停發時按比例計算。</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>項目</th><th class="num">月額</th><th>生效日</th><th>結束日</th><th>備註</th><th></th></tr></thead>
@@ -318,7 +321,7 @@
         <button class="secondary small" id="otReload">重新載入</button>
         <span id="otPeriodStatus"></span>
       </div>
-      <p class="muted">列出正職「下班打卡晚於排班結束」的日子。在場總工時 = 第一次上班到最後一次下班（含休息）。只有核准的分鐘數會算加班費：前 120 分鐘 ×1.34，之後 ×1.67。依勞動部見解，遲到後晚走、超過表定下班時間的部分仍屬延長工時。兼職按打卡時數計薪，不在這裡。</p>
+      <p class="muted">列出正職需要審核加班的日子（列入條件依班別規則）。只有核准的分鐘數會計入加班費，倍率依勞基法計算（平日、休息日、國定假日不同）。兼職按打卡時數計薪，不在這裡。</p>
       <div id="otError" class="error hidden"></div>
       <div class="table-wrap">
         <table>
@@ -390,6 +393,43 @@
         </div>
         <div class="actions"><button id="mAdd">新增項目</button></div>
         <div id="mMsg" class="hidden"></div>
+      </div>
+    </div>
+  </section>
+  <!-- 帳務 -->
+  <section id="acctView" class="hidden">
+    <div class="card">
+      <div class="toolbar">
+        <h3 style="margin:0">營業額對帳</h3>
+        <input type="month" id="acMonth">
+        <button class="secondary small" id="acReload">重新載入</button>
+      </div>
+      <p class="muted">每月上傳 iCHEF 的「營業日報」和「關帳紀錄」匯出檔（xlsx），可以一次選兩個。系統會先列出會改變的內容，按「確認寫入」才會存進去。</p>
+      <div class="toolbar">
+        <input type="file" id="acFiles" accept=".xlsx,.xls,.csv" multiple style="width:auto">
+      </div>
+      <div id="acPreview" class="notice hidden"></div>
+      <div class="actions hidden" id="acPreviewActions">
+        <button id="acConfirm">確認寫入</button>
+        <button class="secondary" id="acCancel">取消</button>
+      </div>
+      <div id="acError" class="error hidden"></div>
+      <div id="acOk" class="success hidden"></div>
+    </div>
+
+    <div class="card">
+      <h3>月報</h3>
+      <div id="acReport" class="muted">載入中…</div>
+    </div>
+
+    <div class="card">
+      <h3>逐日比對</h3>
+      <p class="muted">只要有一項需要注意就會標黃。「已確認」或「公休」的日子不再提醒。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>日期</th><th class="num">營業日報</th><th class="num">關帳合計</th><th>狀態</th><th>說明</th><th></th></tr></thead>
+          <tbody id="acDays"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -483,7 +523,7 @@
   function hide(el) { el.classList.add('hidden'); }
 
   function showLogin(msg) {
-    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'topRight', 'nav'].forEach(function (id) { hide($(id)); });
+    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'statsView', 'acctView', 'topRight', 'nav'].forEach(function (id) { hide($(id)); });
     show($('loginView'));
     var err = $('loginError');
     if (msg) { err.textContent = msg; show(err); } else { hide(err); }
@@ -497,6 +537,7 @@
     $('who').textContent = s.email + '　';
     $('welcome').textContent = '歡迎，' + (s.ownerName || '負責人');
     $('expiry').textContent = '登入有效至 ' + formatTime(s.expiresAt) + '（之後需要重新登入）';
+    $('acctTabBtn').classList.toggle('hidden', !loadAcctSession());
     switchTab('home');
   }
 
@@ -504,12 +545,13 @@
     Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === tab);
     });
-    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'statsView'].forEach(function (id) { hide($(id)); });
+    ['homeView', 'salaryView', 'overtimeView', 'payrollView', 'statsView', 'acctView'].forEach(function (id) { hide($(id)); });
     if (tab === 'home') { show($('homeView')); loadAudit(); }
     if (tab === 'salary') { show($('salaryView')); hide($('editCard')); loadSalary(); }
     if (tab === 'overtime') { show($('overtimeView')); loadOvertime(); }
     if (tab === 'payroll') { show($('payrollView')); loadPayroll(); }
     if (tab === 'stats') { show($('statsView')); loadStats(); }
+    if (tab === 'acct') { show($('acctView')); loadAcct(); }
   }
   Array.prototype.forEach.call(document.querySelectorAll('nav button'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -523,7 +565,7 @@
         if (!res.ok) { showLogin('這個 Google 帳號沒有權限進入後台。'); return; }
         var s = { sessionToken: res.sessionToken, expiresAt: res.expiresAt, email: res.email, ownerName: res.ownerName };
         saveSession(s);
-        showApp(s);
+        return acctLogin(resp.credential).then(function () { showApp(s); });
       })
       .catch(function () { showLogin('連線失敗，請稍後再試。'); });
   }
@@ -661,7 +703,7 @@
   function setPayLabel() {
     var isFull = $('fType').value === '正職';
     $('fPayLabel').textContent = isFull ? '底薪（月薪）' : '時薪';
-    $('fPay').placeholder = isFull ? '例：32000' : '例：200';
+    $('fPay').placeholder = isFull ? '請輸入月薪' : '請輸入時薪';
   }
   $('fType').addEventListener('change', function () { setPayLabel(); $('fPay').value = ''; resetSaveBtn(); hide($('editMsg')); });
 
@@ -1491,6 +1533,209 @@
 
 
 
+
+  // ---------- 帳務（另一個後端：Supabase 後端函式 acct-api） ----------
+  // 這個網址不是機密；所有資料都要通過登入驗證才會回傳，計算也都在後端
+  var ACCT_URL = 'https://bgzmfkcxnlrdtbwgjcpv.supabase.co/functions/v1/acct-api';
+  var ACCT_KEY = 'mt_acct_session';
+  var acctPending = null;
+
+  function loadAcctSession() {
+    try {
+      var s = JSON.parse(sessionStorage.getItem(ACCT_KEY) || 'null');
+      if (s && s.token && s.expiresAt > Date.now()) return s;
+    } catch (e) {}
+    return null;
+  }
+  function clearAcctSession() { try { sessionStorage.removeItem(ACCT_KEY); } catch (e) {} }
+
+  function acctLogin(credential) {
+    return fetch(ACCT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'login', idToken: credential }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) { try { sessionStorage.setItem(ACCT_KEY, JSON.stringify({ token: res.token, expiresAt: res.expiresAt })); } catch (e) {} }
+        else clearAcctSession();
+      })
+      .catch(function () { clearAcctSession(); });
+  }
+
+  function acct(action, data) {
+    var s = loadAcctSession();
+    if (!s) return Promise.reject(new Error('帳務登入已過期，請登出後重新登入。'));
+    return fetch(ACCT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ action: action, token: s.token }, data || {})) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok && res.error === 'unauthorized') { clearAcctSession(); throw new Error('帳務登入已過期，請登出後重新登入。'); }
+        if (!res.ok) throw new Error(res.error || '發生錯誤');
+        return res;
+      });
+  }
+
+  function acMsg(err, ok) {
+    var e = $('acError'), o = $('acOk');
+    if (err) { e.textContent = err; show(e); } else hide(e);
+    if (ok) { o.textContent = ok; show(o); } else hide(o);
+  }
+
+  function currentMonth() {
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function loadAcct() {
+    if (!$('acMonth').value) $('acMonth').value = currentMonth();
+    var month = $('acMonth').value;
+    $('acReport').textContent = '載入中…';
+    $('acDays').innerHTML = '<tr><td colspan="6" class="muted">載入中…</td></tr>';
+    acct('report', { month: month }).then(renderReport).catch(function (e) { $('acReport').textContent = e.message; });
+    acct('compare', { month: month }).then(function (res) { renderDays(res.days); })
+      .catch(function (e) { $('acDays').innerHTML = ''; acMsg(e.message); });
+  }
+
+  function renderReport(r) {
+    var box = $('acReport');
+    box.innerHTML = '';
+    box.className = '';
+    if (!r.days_with_sales) { box.className = 'muted'; box.textContent = '這個月還沒有營業額資料，請先上傳 iCHEF 營業日報。'; return; }
+    var t = document.createElement('table');
+    var rows = [
+      ['營業額（含稅）', r.gross_sales],
+      ['未稅營收', r.net_sales],
+      ['銷項稅額', r.output_vat],
+      ['店租', r.rent],
+      ['營業稅預留（估）', r.vat_accrual],
+      ['營所稅預提（估）', r.income_tax_accrual],
+      ['原料、人事、營運費用', null]
+    ];
+    rows.forEach(function (x) {
+      var tr = document.createElement('tr');
+      addCell(tr, x[0]);
+      addCell(tr, x[1] === null ? '待匯入（開始記帳或匯入歷史帳後才有）' : money(x[1]), x[1] === null ? 'detail' : 'num');
+      t.appendChild(tr);
+    });
+    box.appendChild(t);
+    var p = document.createElement('p');
+    p.className = 'muted';
+    p.textContent = '有營業額 ' + r.days_with_sales + ' 天、公休 ' + r.days_closed + ' 天、需要注意 ' + r.days_attention + ' 天。' + (r.rent_rule ? '店租依：' + r.rent_rule + '。' : '');
+    box.appendChild(p);
+  }
+
+  var STATUS_TEXT = { ok: '一致', note: '請留意', diff: '對不上', missing: '缺資料', closed: '公休', closed_guess: '公休（推定）', resolved: '已確認' };
+
+  function renderDays(days) {
+    var tb = $('acDays');
+    tb.innerHTML = '';
+    days.forEach(function (d) {
+      var tr = document.createElement('tr');
+      if (['note', 'diff', 'missing'].indexOf(d.status) >= 0) tr.className = 'warn';
+      addCell(tr, d.date.slice(5));
+      addCell(tr, d.sales && d.sales.gross_sales !== null ? money(d.sales.gross_sales) : '—', 'num');
+      addCell(tr, d.closings_total !== null ? money(d.closings_total) : '—', 'num');
+      addCell(tr, STATUS_TEXT[d.status] || d.status);
+      addCell(tr, (d.issues || []).join('；'), 'detail');
+      var td = document.createElement('td');
+      if (['note', 'diff', 'missing'].indexOf(d.status) >= 0) {
+        var b1 = document.createElement('button'); b1.className = 'secondary small'; b1.textContent = '已確認';
+        b1.addEventListener('click', function () { dayAction('resolve_day', d.date, '已確認 ' + d.date); });
+        td.appendChild(b1);
+      }
+      if (d.status === 'missing' || d.status === 'closed_guess') {
+        var b2 = document.createElement('button'); b2.className = 'secondary small'; b2.textContent = '標為公休'; b2.style.marginLeft = '6px';
+        b2.addEventListener('click', function () { dayAction('set_day', d.date, d.date + ' 已標為公休', { closed: true }); });
+        td.appendChild(b2);
+      }
+      tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+  }
+
+  function dayAction(action, date, okText, extra) {
+    acMsg();
+    acct(action, Object.assign({ date: date }, extra || {}))
+      .then(function () { acMsg(null, okText); loadAcct(); })
+      .catch(function (e) { acMsg(e.message); });
+  }
+
+  // 讀 iCHEF 匯出檔：依標題列判斷是營業日報還是關帳紀錄
+  function cellDate(v) {
+    if (v instanceof Date) return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0');
+    return String(v || '').trim().replace(/\//g, '-').slice(0, 10);
+  }
+  function parseIchef(file) {
+    return file.arrayBuffer().then(function (buf) {
+      var wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
+      var hi = rows.findIndex(function (r) { return r && (r.indexOf('營業額') >= 0 || r.indexOf('營業淨額') >= 0); });
+      if (hi < 0) throw new Error(file.name + '：看不出是哪一種 iCHEF 檔（找不到「營業額」或「營業淨額」欄）');
+      var h = rows[hi], col = function (name) { return h.indexOf(name); };
+      var body = rows.slice(hi + 1);
+      if (h.indexOf('營業額') >= 0 && h.indexOf('日期') >= 0) {
+        return { kind: 'daily', fileName: file.name, rows: body.filter(function (r) { return r[col('日期')]; }).map(function (r) {
+          return { date: cellDate(r[col('日期')]), gross: r[col('營業額')], discount: r[col('折扣金額細項')], customers: r[col('來客數')] };
+        }) };
+      }
+      if (h.indexOf('營業淨額') < 0 || h.indexOf('操作完成時間') < 0) throw new Error(file.name + '：不是營業日報或關帳紀錄匯出檔');
+      var find = function (part) { return h.findIndex(function (x) { return x && String(x).indexOf(part) >= 0; }); };
+      var cCash = find('現金'), cLine = find('Line Pay');
+      return { kind: 'closings', fileName: file.name, rows: body.filter(function (r) { return r[0] === '關帳'; }).map(function (r) {
+        var end = r[col('操作完成時間')];
+        if (end instanceof Date) end = cellDate(end) + ' ' + String(end.getHours()).padStart(2, '0') + ':' + String(end.getMinutes()).padStart(2, '0') + ':' + String(end.getSeconds()).padStart(2, '0');
+        return { end: end, net: r[col('營業淨額')], cash: cCash >= 0 ? r[cCash] : null, linepay: cLine >= 0 ? r[cLine] : null,
+          invoice_count: r[col('發票張數')], invoice_from: r[col('發票起號')], invoice_to: r[col('發票尾號')],
+          void_count: r[col('作廢張數')], void_amount: r[col('發票作廢金額')], withdrawn: r[col('期間取出金額')],
+          petty_expense: r[col('臨時支出總額')], petty_income: r[col('臨時收入總額')], over_short: r[col('短溢金額')],
+          petty_float: r[col('預留零用金')], staff: r[col('負責人')] };
+      }) };
+    });
+  }
+
+  function previewText(kind, res) {
+    var s = res.summary;
+    if (kind === 'daily') {
+      var t = '營業日報（' + s.from + ' ～ ' + s.to + '）：共 ' + s.rows + ' 天，合計 ' + money(s.total) + '；新增 ' + s.new + ' 天、數字改變 ' + s.changed + ' 天。';
+      (res.changes || []).filter(function (c) { return c.kind === 'changed'; }).slice(0, 20).forEach(function (c) {
+        t += '\n　' + c.date + '：' + money(c.before) + ' → ' + money(c.after);
+      });
+      return t;
+    }
+    return '關帳紀錄（' + s.from + ' ～ ' + s.to + '）：共 ' + s.rows + ' 筆，合計 ' + money(s.total) + (s.negative ? '；其中 ' + s.negative + ' 筆是關帳後退款或作廢' : '') + (s.needs_review ? '；' + s.needs_review + ' 筆付款合計對不上' : '') + '。';
+  }
+
+  $('acFiles').addEventListener('change', function () {
+    acMsg();
+    var files = Array.prototype.slice.call(this.files || []);
+    if (!files.length) return;
+    if (!window.XLSX) { acMsg('讀檔元件還沒載入，請稍候再試。'); return; }
+    Promise.all(files.map(parseIchef)).then(function (parsed) {
+      return Promise.all(parsed.map(function (p) {
+        return acct(p.kind === 'daily' ? 'import_daily' : 'import_closings', { rows: p.rows, fileName: p.fileName, dryRun: true })
+          .then(function (res) { return { p: p, text: previewText(p.kind, res) }; });
+      }));
+    }).then(function (list) {
+      acctPending = list.map(function (x) { return x.p; });
+      $('acPreview').style.whiteSpace = 'pre-line';
+      $('acPreview').textContent = list.map(function (x) { return x.text; }).join('\n\n');
+      show($('acPreview')); show($('acPreviewActions'));
+    }).catch(function (e) { acMsg(e.message); });
+  });
+
+  $('acConfirm').addEventListener('click', function () {
+    if (!acctPending) return;
+    var btn = this; btn.disabled = true;
+    var jobs = acctPending.slice().sort(function (a, b) { return a.kind === 'daily' ? -1 : 1; });
+    jobs.reduce(function (pr, p) {
+      return pr.then(function () { return acct(p.kind === 'daily' ? 'import_daily' : 'import_closings', { rows: p.rows, fileName: p.fileName }); });
+    }, Promise.resolve()).then(function () {
+      acctPending = null; hide($('acPreview')); hide($('acPreviewActions')); $('acFiles').value = '';
+      acMsg(null, '已寫入。'); loadAcct();
+    }).catch(function (e) { acMsg(e.message); }).then(function () { btn.disabled = false; });
+  });
+  $('acCancel').addEventListener('click', function () {
+    acctPending = null; hide($('acPreview')); hide($('acPreviewActions')); $('acFiles').value = ''; acMsg();
+  });
+  $('acReload').addEventListener('click', loadAcct);
+  $('acMonth').addEventListener('change', loadAcct);
+
   // ---------- 小工具 ----------
   // 一律用 textContent 放資料，避免資料內容被當成網頁程式執行
   function addCell(tr, text, cls) {
@@ -1516,6 +1761,7 @@
   // ---------- 登出 ----------
   function logout(msg) {
     clearSession();
+    clearAcctSession();
     session = null;
     if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
     showLogin(msg);
@@ -1527,6 +1773,6 @@
   if (existing) showApp(existing); else showLogin();
   initGoogle();
 </script>
-<div style="position:fixed;right:10px;bottom:6px;font-size:11px;color:#b5aca6;pointer-events:none">後台版本 2026-11-11-01</div>
+<div style="position:fixed;right:10px;bottom:6px;font-size:11px;color:#b5aca6;pointer-events:none">後台版本 2026-11-19-01</div>
 </body>
 </html>
